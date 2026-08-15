@@ -70,7 +70,7 @@ export async function uploadImages(householdId, files) {
   return paths;
 }
 
-export async function createImportJob(householdId, imagePaths) {
+export async function createImportJob(householdId, imagePaths, hint) {
   const { data: user } = await supabase.auth.getUser();
 
   const { data, error } = await supabase
@@ -79,6 +79,7 @@ export async function createImportJob(householdId, imagePaths) {
       household_id: householdId,
       created_by: user.user.id,
       image_paths: imagePaths,
+      hint: hint?.trim() || null,
     })
     .select('id')
     .single();
