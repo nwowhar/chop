@@ -53,10 +53,18 @@ export default function Recipe({ id, household, go }) {
       <button className="btn btn-quiet" style={{ alignSelf: 'flex-start' }}
         onClick={() => go('/')}>← Recipes</button>
 
+      {recipe.image_url && (
+        <img className="recipe-hero" src={recipe.image_url} alt=""
+          onError={(e) => { e.target.style.display = 'none'; }} />
+      )}
+
       <div>
         <h1>{recipe.title}</h1>
         <p className="muted">
-          {recipe.source_handle ? `@${recipe.source_handle}` : 'Imported'}
+          {recipe.source_url
+            ? <a href={recipe.source_url} target="_blank" rel="noreferrer"
+                style={{ color: 'var(--green)' }}>Original recipe ↗</a>
+            : recipe.source_handle ? `@${recipe.source_handle}` : 'Imported'}
         </p>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
           {recipe.tags?.includes('generated') && (
