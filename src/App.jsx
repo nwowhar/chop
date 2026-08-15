@@ -1,607 +1,95 @@
-/* ============================================================
-   Chop — app layout
-   Everything here builds on the tokens in theme.css.
-   ============================================================ */
+import { useEffect, useState } from 'react';
+import { supabase, getHousehold } from './lib/supabase';
+import Login from './screens/Login';
+import Onboarding from './screens/Onboarding';
+import Import from './screens/Import';
+import Discover from './screens/Discover';
+import Recipes from './screens/Recipes';
+import Recipe from './screens/Recipe';
+import Cook from './screens/Cook';
+import Plan from './screens/Plan';
+import Shopping from './screens/Shopping';
+import Pantry from './screens/Pantry';
+import Side from './components/Side';
 
-.shell {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  max-width: 640px;
-  margin: 0 auto;
-}
+export default function App() {
+  const [session, setSession] = useState(undefined);
+  const [household, setHousehold] = useState(undefined);
+  const [route, setRoute] = useState(readRoute());
 
-.main {
-  flex: 1;
-  padding: var(--s-4);
-  padding-bottom: calc(var(--s-7) + env(safe-area-inset-bottom));
-}
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
-.splash {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-}
+  useEffect(() => {
+    if (!session) { setHousehold(session === null ? null : undefined); return; }
+    getHousehold().then(setHousehold).catch(() => setHousehold(null));
+  }, [session]);
 
-/* ---- nav -------------------------------------------------- */
+  useEffect(() => {
+    const onPop = () => setRoute(readRoute());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  background: var(--paper-1);
-  border-bottom: var(--hair) solid var(--line);
-}
-
-.nav-brand {
-  font-size: var(--t-lg);
-  font-weight: var(--w-strong);
-  letter-spacing: -0.02em;
-  margin-right: auto;
-}
-
-.nav-link {
-  font-size: var(--t-small);
-  color: var(--ink-2);
-  background: none;
-  border: 0;
-  padding: var(--s-2);
-  min-height: var(--tap);
-  cursor: pointer;
-}
-.nav-link[aria-current='page'] { color: var(--ink); font-weight: var(--w-medium); }
-
-/* ---- generic ---------------------------------------------- */
-
-.stack   { display: flex; flex-direction: column; gap: var(--s-4); }
-.stack-s { display: flex; flex-direction: column; gap: var(--s-2); }
-.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
-
-.muted { color: var(--ink-2); font-size: var(--t-small); }
-.tiny  { color: var(--ink-3); font-size: var(--t-micro); }
-
-.center-card {
-  max-width: 380px;
-  margin: var(--s-7) auto;
-}
-
-.field {
-  width: 100%;
-  min-height: var(--tap);
-  padding: 0 var(--s-3);
-  font-family: var(--font-ui);
-  font-size: var(--t-body);
-  color: var(--ink);
-  background: var(--paper-0);
-  border: var(--hair) solid var(--line-firm);
-  border-radius: var(--r-md);
-}
-.field:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
-
-.btn-block { width: 100%; }
-
-.error {
-  font-size: var(--t-small);
-  color: var(--alert);
-  background: var(--alert-wash);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-md);
-}
-
-.ok {
-  font-size: var(--t-small);
-  color: var(--green);
-  background: var(--green-wash);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-md);
-}
-
-.empty {
-  text-align: center;
-  padding: var(--s-7) var(--s-4);
-  color: var(--ink-2);
-  font-size: var(--t-small);
-}
-
-/* ---- lists ------------------------------------------------ */
-
-.list {
-  background: var(--paper-0);
-  border: var(--hair) solid var(--line);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-}
-
-.list .row { border-radius: 0; }
-
-.row-sub {
-  display: block;
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  margin-top: 2px;
-}
-
-/* ---- import ----------------------------------------------- */
-
-.dropzone {
-  border: var(--hair) dashed var(--line-firm);
-  border-radius: var(--r-lg);
-  padding: var(--s-6) var(--s-4);
-  text-align: center;
-  background: var(--paper-0);
-  cursor: pointer;
-}
-.dropzone:hover { border-color: var(--ink-3); }
-
-.thumbs {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-  gap: var(--s-2);
-}
-
-.thumb {
-  position: relative;
-  aspect-ratio: 9 / 16;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  border: var(--hair) solid var(--line);
-  background: var(--paper-2);
-}
-.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-.thumb-x {
-  position: absolute;
-  top: 4px; right: 4px;
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  border: 0;
-  background: var(--ink);
-  color: var(--paper-0);
-  font-size: var(--t-micro);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.job {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-3);
-  border-bottom: var(--hair) solid var(--line);
-}
-.job:last-child { border-bottom: 0; }
-
-/* ---- recipe ----------------------------------------------- */
-
-.ingredient {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: var(--s-3);
-  padding: var(--s-2) 0;
-  border-bottom: var(--hair) solid var(--line);
-  font-size: var(--t-body);
-}
-.ingredient:last-child { border-bottom: 0; }
-
-.ingredient-flag { color: var(--warn); font-size: var(--t-micro); margin-left: var(--s-1); }
-
-.step {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: var(--s-3);
-  padding: var(--s-3) 0;
-  border-bottom: var(--hair) solid var(--line);
-  line-height: var(--lh-body);
-}
-.step:last-child { border-bottom: 0; }
-
-.step-no {
-  font-family: var(--font-num);
-  font-size: var(--t-small);
-  color: var(--ink-3);
-  padding-top: 2px;
-}
-
-.spinner {
-  display: inline-block;
-  width: 14px; height: 14px;
-  border: 2px solid var(--line-firm);
-  border-top-color: var(--ink);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner { animation: none; }
-}
-
-/* ---- nav scroll on narrow screens -------------------------- */
-
-.nav {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.nav::-webkit-scrollbar { display: none; }
-.nav-link { white-space: nowrap; flex-shrink: 0; }
-.nav-brand { flex-shrink: 0; }
-
-.row input[type='checkbox'] {
-  width: 20px; height: 20px;
-  flex-shrink: 0;
-  accent-color: var(--ink);
-}
-
-/* ---- wordmark in the nav ----------------------------------- */
-
-.nav-brand {
-  position: relative;
-  display: inline-block;
-  margin-right: auto;
-  flex-shrink: 0;
-}
-.nav-brand .mark-slash {
-  left: -3px; top: 0.40em;
-  width: 112%; height: 6px;
-}
-.nav-brand .mark-text {
-  position: relative;
-  font-size: 21px;
-  font-weight: 900;
-  font-style: italic;
-  letter-spacing: -0.03em;
-}
-
-/* ============================================================
-   Shell — sidebar on desktop, top bar on mobile
-   ============================================================ */
-
-.app {
-  display: grid;
-  grid-template-columns: 216px 1fr;
-  gap: var(--s-4);
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: var(--s-4);
-  min-height: 100dvh;
-}
-
-.side {
-  position: sticky;
-  top: var(--s-4);
-  align-self: start;
-  height: calc(100dvh - var(--s-6));
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.side-brand { padding: var(--s-2) var(--s-3) var(--s-4); }
-
-.side-link {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 11px var(--s-4);
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--ink-2);
-  font-family: var(--font-ui);
-  font-size: var(--t-small);
-  font-weight: var(--w-medium);
-  cursor: pointer;
-}
-.side-link:hover { background: var(--paper-2); }
-.side-link[aria-current='page'] {
-  background: var(--ink);
-  color: var(--paper-1);
-  font-weight: var(--w-strong);
-}
-
-.side-foot { margin-top: auto; }
-
-.expiring {
-  background: var(--amber-wash);
-  border-radius: var(--r-lg);
-  padding: var(--s-3) var(--s-4);
-}
-
-.panel {
-  background: var(--paper-0);
-  border: var(--hair) solid var(--line);
-  border-radius: 18px;
-  padding: var(--s-5);
-  min-height: calc(100dvh - var(--s-6));
-}
-
-@media (max-width: 780px) {
-  .app { grid-template-columns: 1fr; gap: 0; padding: 0; }
-  .side {
-    position: sticky; top: 0; z-index: 20;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--s-1);
-    overflow-x: auto;
-    scrollbar-width: none;
-    background: var(--paper-1);
-    padding: var(--s-3) var(--s-4);
-    border-bottom: var(--hair) solid var(--line);
+  function go(path) {
+    window.history.pushState({}, '', path);
+    setRoute(readRoute());
+    window.scrollTo(0, 0);
   }
-  .side::-webkit-scrollbar { display: none; }
-  .side-brand { padding: 0 var(--s-3) 0 0; }
-  .side-link { width: auto; white-space: nowrap; padding: 9px 13px; }
-  .side-foot { display: none; }
-  .panel {
-    border: 0; border-radius: 0; background: transparent;
-    padding: var(--s-4);
-    padding-bottom: var(--s-7);
-    min-height: 0;
+
+  if (session === undefined) return <Splash />;
+  if (!session) return <Login />;
+  if (household === undefined) return <Splash />;
+  if (!household) return <Onboarding onDone={setHousehold} />;
+
+  // Cook mode takes the whole screen — no chrome in the kitchen
+  if (route.name === 'cook') {
+    return <Cook id={route.id} household={household} go={go} />;
   }
+
+  let screen;
+  switch (route.name) {
+    case 'recipe':   screen = <Recipe id={route.id} household={household} go={go} />; break;
+    case 'discover': screen = <Discover household={household} go={go} />; break;
+    case 'import':   screen = <Import household={household} go={go} />; break;
+    case 'plan':     screen = <Plan household={household} go={go} />; break;
+    case 'shopping': screen = <Shopping household={household} />; break;
+    case 'pantry':   screen = <Pantry household={household} go={go} />; break;
+    default:         screen = <Recipes household={household} go={go} />;
+  }
+
+  return (
+    <div className="app">
+      <Side route={route} go={go} household={household} />
+      <main className="panel">{screen}</main>
+    </div>
+  );
 }
 
-/* ============================================================
-   Recipe tiles
-   ============================================================ */
-
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: var(--s-3);
+function readRoute() {
+  const p = window.location.pathname;
+  const r = p.match(/^\/recipe\/([0-9a-f-]+)$/i);
+  if (r) return { name: 'recipe', id: r[1] };
+  const c = p.match(/^\/cook\/([0-9a-f-]+)$/i);
+  if (c) return { name: 'cook', id: c[1] };
+  if (p.startsWith('/discover')) return { name: 'discover' };
+  if (p.startsWith('/import'))   return { name: 'import' };
+  if (p.startsWith('/plan'))     return { name: 'plan' };
+  if (p.startsWith('/shopping')) return { name: 'shopping' };
+  if (p.startsWith('/pantry'))   return { name: 'pantry' };
+  return { name: 'recipes' };
 }
 
-.tile {
-  border: 0;
-  padding: 0;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  cursor: pointer;
-  text-align: left;
-  background: var(--paper-0);
-  border: var(--hair) solid var(--line);
-  transition: transform var(--dur-fast) var(--ease);
-}
-.tile:hover { transform: translateY(-2px); }
-
-.tile-art {
-  aspect-ratio: 4 / 3;
-  display: grid;
-  place-items: center;
-  position: relative;
-}
-.tile-art span {
-  font-family: var(--font-num);
-  font-size: var(--t-micro);
-  opacity: 0.55;
-}
-
-.tile-c0 { background: #2F6B4F; color: #DCE9E1; }
-.tile-c1 { background: #F2643C; color: #FCE3DA; }
-.tile-c2 { background: #F0B23F; color: #4A3308; }
-.tile-c3 { background: #1F2A24; color: #B9C4BC; }
-
-.tile-flag {
-  position: absolute;
-  top: 8px; left: 8px;
-  font-size: 9px;
-  font-weight: var(--w-strong);
-  letter-spacing: 0.06em;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-}
-
-.tile-body { padding: var(--s-3); }
-.tile-title {
-  font-weight: var(--w-strong);
-  font-size: var(--t-small);
-  line-height: 1.3;
-  display: block;
-}
-.tile-meta {
-  font-family: var(--font-num);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  margin-top: 5px;
-  display: block;
-}
-
-/* ============================================================
-   Search + suggestions
-   ============================================================ */
-
-.searchbar { display: flex; gap: var(--s-2); }
-.searchbar .field { flex: 1; }
-
-.suggestion { display: flex; flex-direction: column; gap: var(--s-3); }
-.suggestion-meta { display: flex; gap: 5px; flex-wrap: wrap; }
-.suggestion-actions { display: flex; gap: var(--s-2); flex-wrap: wrap; }
-
-/* ============================================================
-   Cook mode
-   ============================================================ */
-
-.cook {
-  background: #1F2A24;
-  color: #FBEFD9;
-  border-radius: 18px;
-  padding: var(--s-5);
-  min-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-}
-
-.cook-head {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--font-num);
-  font-size: var(--t-micro);
-  letter-spacing: 0.12em;
-  color: #8B9389;
-  text-transform: uppercase;
-}
-.cook-clock { color: var(--amber); }
-
-.cook-step {
-  font-size: 30px;
-  line-height: 1.32;
-  font-weight: var(--w-medium);
-  flex: 1;
-}
-.cook-step em {
-  font-style: normal;
-  font-family: var(--font-num);
-  color: var(--amber);
-}
-
-.cook-bars { display: flex; gap: 5px; }
-.cook-bar {
-  flex: 1; height: 3px; border-radius: 2px;
-  background: #3A4A40;
-}
-.cook-bar.on { background: var(--amber); }
-
-.cook-actions { display: flex; gap: var(--s-3); }
-.cook-actions .btn { min-height: 56px; }
-.cook-back {
-  background: transparent;
-  border-color: #3A4A40;
-  color: #FBEFD9;
-  flex-shrink: 0;
-  padding: 0 var(--s-5);
-}
-.cook-next { flex: 1; }
-
-/* ============================================================
-   Shopping list
-   ============================================================ */
-
-.progress {
-  height: 5px;
-  border-radius: 3px;
-  background: var(--paper-2);
-  overflow: hidden;
-}
-.progress-fill {
-  display: block;
-  height: 100%;
-  background: var(--green);
-  border-radius: 3px;
-  transition: width var(--dur-base) var(--ease);
-}
-
-.shop-row { gap: var(--s-3); }
-
-.tickbox {
-  flex-shrink: 0;
-  width: 26px; height: 26px;
-  border-radius: 8px;
-  border: 2px solid var(--line-firm);
-  background: var(--paper-0);
-  color: var(--paper-0);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  padding: 0;
-}
-.tickbox.on {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-}
-
-.have-btn {
-  flex-shrink: 0;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  min-height: 32px;
-  padding: 0 10px;
-  border: var(--hair) dashed var(--line-firm);
-  color: var(--ink-3);
-}
-.have-btn:hover { border-color: var(--green); color: var(--green); }
-
-/* ============================================================
-   Pantry
-   ============================================================ */
-
-.pantry-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
-  gap: var(--s-2);
-}
-
-.pcard {
-  border: var(--hair) solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--paper-0);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.pcard.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-.pcard.old { background: var(--alert-wash); }
-
-.pcard-main {
-  border: 0;
-  background: none;
-  text-align: left;
-  padding: var(--s-3);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  align-items: flex-start;
-  flex: 1;
-}
-.pcard-name {
-  font-size: var(--t-small);
-  font-weight: var(--w-medium);
-  line-height: 1.25;
-}
-
-.pcard-nudge {
-  display: flex;
-  border-top: var(--hair) solid var(--line);
-}
-.pcard-nudge .btn {
-  flex: 1;
-  min-height: 36px;
-  border-radius: 0;
-  border: 0;
-  border-right: var(--hair) solid var(--line);
-  font-size: var(--t-body);
-}
-.pcard-nudge .btn:last-child { border-right: 0; }
-
-.staples { display: flex; gap: 6px; flex-wrap: wrap; }
-
-/* ============================================================
-   Recipe tile photos
-   ============================================================ */
-
-.tile-art img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.recipe-hero {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: var(--r-lg);
-  display: block;
+function Splash() {
+  return (
+    <div className="splash">
+      <span className="mark">
+        <i className="mark-slash" />
+        <span className="mark-text" style={{ fontSize: 46 }}>Chop!</span>
+      </span>
+    </div>
+  );
 }
