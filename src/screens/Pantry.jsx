@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react';
-import { getPantry, setStock, searchIngredients, cookFromStock } from '../lib/supabase';
+import {
+  getPantry, setStock, setPantryQty, searchIngredients, cookFromStock,
+} from '../lib/supabase';
+
+const CATS = [
+  ['produce', 'Produce'], ['meat', 'Meat'], ['seafood', 'Seafood'],
+  ['dairy', 'Dairy'], ['bakery', 'Bakery'], ['frozen', 'Frozen'],
+  ['pantry', 'Pantry'], ['spice', 'Spices'], ['drinks', 'Drinks'],
+  ['household', 'Other'],
+];
 
 export default function Pantry({ household, go }) {
   const [items, setItems] = useState(null);
@@ -30,10 +39,22 @@ export default function Pantry({ household, go }) {
     setQ(''); setHits([]); load();
   }
 
+  async function nudge(item, delta) {
+    const step = item.unit === 'each' ? 1
+      : item.unit === 'ml' || item.unit === 'g' ? (item.qty >= 500 ? 100 : 50)
+      : 1;
+    const next = Math.max(0, (item.qty ?? 0) + delta * step);
+
+    setItems((rows) => rows.map((r) =>
+      r.ingredient_id === item.ingredient_id ? { ...r, qty: next || null } : r));
+    await setPantryQty(household.id, item.ingredient_id, next);
+    load();
+  }
+
   async function remove(ingredientId) {
+    setItems((rows) => rows.filter((r) => r.ingredient_id !== ingredientId));
     await setStock(household.id, ingredientId, false);
     setSelected((s) => { const n = new Set(s); n.delete(ingredientId); return n; });
-    load();
   }
 
   function toggleSelect(id) {
@@ -56,14 +77,20 @@ export default function Pantry({ household, go }) {
   if (!items) return <p className="muted">Loading…</p>;
 
   const expiring = items.filter((i) => i.freshness === 'soon' || i.freshness === 'expired');
-  const groups = groupBy(items, 'category');
+  const staples = items.filter((i) => i.is_staple);
+  const fresh = items.filter((i) => !i.is_staple);
 
   return (
     <div className="stack">
-      <h1>Pantry</h1>
+      <div className="row-between">
+        <h1>Pantry</h1>
+        <span className="num">{items.length} items</span>
+      </div>
 
-      <input className="field" placeholder="Add something you have"
-        value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="searchbar">
+        <input className="field" placeholder="Add something you have"
+          value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
 
       {hits.length > 0 && (
         <div className="list">
@@ -78,61 +105,74 @@ export default function Pantry({ household, go }) {
       )}
 
       {expiring.length > 0 && (
-        <div className="card card-pad">
-          <span className="eyebrow">Use these up</span>
-          <p className="muted" style={{ marginTop: 4 }}>
-            {expiring.map((e) => e.canonical_name).join(', ')}
-          </p>
-          <button className="btn btn-block" style={{ marginTop: 12 }}
-            onClick={() => {
+        <div className="card card-pad" style={{ background: 'var(--amber-wash)' }}>
+          <div className="row-between">
+            <div>
+              <strong>{expiring.length} to use up</strong>
+              <p className="muted" style={{ margin: '3px 0 0' }}>
+                {expiring.map((e) => e.canonical_name).join(', ')}
+              </p>
+            </div>
+            <button className="btn" onClick={() => {
               setSelected(new Set(expiring.map((e) => e.ingredient_id)));
               setSuggestions(null);
-            }}>
-            Select all {expiring.length}
-          </button>
+            }}>Use these</button>
+          </div>
         </div>
       )}
 
       {items.length === 0 && (
         <p className="empty">
-          Nothing in the pantry yet. Tick items off a shopping list and they land here.
+          Empty. Tick items off a shopping list and they land here automatically.
         </p>
       )}
 
-      {Object.entries(groups).map(([cat, rows]) => (
-        <div key={cat}>
-          <div className="cut-label">{cat}</div>
-          <div className="list">
-            {rows.map((i) => (
-              <div className="row" key={i.ingredient_id}>
-                <input type="checkbox" checked={selected.has(i.ingredient_id)}
-                  onChange={() => toggleSelect(i.ingredient_id)} />
-                <div className="row-name">
-                  {i.canonical_name}
-                  {i.freshness === 'soon' && <span className="badge badge-soon" style={{ marginLeft: 8 }}>soon</span>}
-                  {i.freshness === 'expired' && <span className="badge badge-expired" style={{ marginLeft: 8 }}>old</span>}
-                  {i.confidence === 'assumed' && <span className="row-sub">estimated</span>}
-                </div>
-                <span className="num">{i.qty_label || (i.is_staple ? 'have' : '')}</span>
-                <button className="btn btn-quiet" style={{ color: 'var(--ink-3)' }}
-                  onClick={() => remove(i.ingredient_id)}>×</button>
-              </div>
+      {fresh.length > 0 && (
+        <section>
+          <div className="cut-label">Fresh &amp; measured</div>
+          <div className="pantry-grid">
+            {fresh.map((i) => (
+              <Card key={i.ingredient_id} item={i}
+                selected={selected.has(i.ingredient_id)}
+                onSelect={() => toggleSelect(i.ingredient_id)}
+                onNudge={(d) => nudge(i, d)}
+                onRemove={() => remove(i.ingredient_id)} />
             ))}
           </div>
-        </div>
-      ))}
+        </section>
+      )}
+
+      {staples.length > 0 && (
+        <section>
+          <div className="cut-label">Staples</div>
+          <p className="tiny" style={{ marginTop: -6, marginBottom: 10 }}>
+            Tracked as have or don't have. No amounts.
+          </p>
+          <div className="staples">
+            {staples.map((i) => (
+              <button key={i.ingredient_id}
+                className="chip" aria-pressed={selected.has(i.ingredient_id)}
+                onClick={() => toggleSelect(i.ingredient_id)}
+                onDoubleClick={() => remove(i.ingredient_id)}
+                title="Double-click to remove">
+                {i.canonical_name}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {selected.size > 0 && (
-        <button className="btn btn-primary btn-block" onClick={suggest} disabled={busy}>
-          {busy ? 'Looking…' : `What can I make with ${selected.size} of these?`}
+        <button className="btn btn-accent btn-block" onClick={suggest} disabled={busy}>
+          {busy ? 'Looking…' : `What can I make with ${selected.size}?`}
         </button>
       )}
 
       {suggestions && (
-        <div>
+        <section>
           <div className="cut-label">Suggestions</div>
           {suggestions.length === 0 ? (
-            <p className="empty">Nothing in your recipes uses those. Import more.</p>
+            <p className="empty">Nothing in your library uses those yet.</p>
           ) : (
             <div className="list">
               {suggestions.map((s) => (
@@ -145,20 +185,34 @@ export default function Pantry({ household, go }) {
                         : `Missing ${s.missing_names.slice(0, 3).join(', ')}`}
                     </span>
                   </div>
-                  <span className="num">{s.used_count} used</span>
+                  {s.make_tonight && <span className="badge badge-hot">tonight</span>}
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   );
 }
 
-function groupBy(rows, key) {
-  return rows.reduce((acc, r) => {
-    (acc[r[key]] ??= []).push(r);
-    return acc;
-  }, {});
+function Card({ item, selected, onSelect, onNudge, onRemove }) {
+  const label = item.qty_label || 'some';
+  return (
+    <div className={`pcard ${selected ? 'on' : ''} ${item.freshness === 'expired' ? 'old' : ''}`}>
+      <button className="pcard-main" onClick={onSelect}>
+        <span className="pcard-name">{item.canonical_name}</span>
+        <span className="num-lg">{label}</span>
+        {item.freshness === 'soon' && <span className="badge badge-soon">use soon</span>}
+        {item.freshness === 'expired' && <span className="badge badge-expired">old</span>}
+        {item.confidence === 'assumed' && <span className="tiny">estimated</span>}
+      </button>
+      <div className="pcard-nudge">
+        <button className="btn btn-quiet" onClick={() => onNudge(-1)}>−</button>
+        <button className="btn btn-quiet" onClick={() => onNudge(1)}>+</button>
+        <button className="btn btn-quiet" onClick={onRemove}
+          style={{ color: 'var(--ink-3)' }}>×</button>
+      </div>
+    </div>
+  );
 }
