@@ -45,7 +45,7 @@ export default function App() {
 
   let screen;
   switch (route.name) {
-    case 'recipe':   screen = <Recipe id={route.id} go={go} />; break;
+    case 'recipe':   screen = <Recipe id={route.id} household={household} go={go} />; break;
     case 'import':   screen = <Import household={household} go={go} />; break;
     case 'plan':     screen = <Plan household={household} go={go} />; break;
     case 'shopping': screen = <Shopping household={household} />; break;
