@@ -166,6 +166,38 @@ export async function generateRecipe(householdId, dish, theme, onStage) {
   return await runParse(jobId, onStage);
 }
 
+// Five dish suggestions for a natural-language query. Cheap —
+// titles and one-liners only. The full recipe is written later,
+// and only for the one that gets picked.
+export async function suggestRecipes(query, exclude = []) {
+  const { data, error } = await supabase.functions.invoke('suggest-recipes', {
+    body: { query, exclude },
+  });
+  if (error) {
+    let detail = error.message;
+    try {
+      const ctx = await error.context?.json();
+      if (ctx?.error) detail = ctx.error;
+    } catch { /* not json */ }
+    throw new Error(detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data?.suggestions ?? [];
+}
+
+// Text search across the household's own recipes, so a query
+// surfaces what you already have before offering to write more.
+export async function searchRecipes(q) {
+  if (!q.trim()) return [];
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('id, title, servings, source_handle, tags, macros_per_serve')
+    .ilike('title', `%${q.trim()}%`)
+    .limit(10);
+  if (error) throw error;
+  return data;
+}
+
 // ---------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------
@@ -278,6 +310,21 @@ export async function planMeal(householdId, date, recipeId, servings) {
 export async function unplanMeal(id) {
   const { error } = await supabase.from('meal_plan').delete().eq('id', id);
   if (error) throw error;
+}
+
+// Mark the soonest uncooked plan entry for this recipe as cooked.
+// Used by cook mode, which knows the recipe but not the plan row.
+export async function markCookedByRecipe(householdId, recipeId) {
+  const { data } = await supabase
+    .from('meal_plan')
+    .select('id')
+    .eq('household_id', householdId)
+    .eq('recipe_id', recipeId)
+    .is('cooked_at', null)
+    .order('date')
+    .limit(1)
+    .maybeSingle();
+  if (data?.id) return markCooked(data.id);
 }
 
 export async function markCooked(id) {
