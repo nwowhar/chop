@@ -1,0 +1,263 @@
+{
+  "_readme": [
+    "Hand-checked expected output for the four screenshots in fixtures/images/.",
+    "IMG_2281 -> recipe A (dumplings, single image, steps truncated)",
+    "IMG_2280 -> recipe B (butter chicken, no title visible, steps complete)",
+    "IMG_2278 + IMG_2279 -> recipe C (shawarma, TWO overlapping images, one recipe)",
+    "",
+    "Grade the parser on: title inference, section preservation, split lines,",
+    "unit conversion, null quantities, overlap dedupe, truncation detection.",
+    "Exact float equality on qty is fair. Fuzzy match on step text."
+  ],
+
+  "cases": [
+    {
+      "id": "dumplings",
+      "images": ["IMG_2281.PNG"],
+      "traps": [
+        "steps cut off mid-sentence -> steps_truncated true",
+        "18-20 range -> upper bound 20",
+        "avocado oil has no quantity -> null, not a guess",
+        "all four toppings are quantity-free and is_topping true",
+        "no servings stated anywhere -> null, do not invent 4"
+      ],
+      "expected": {
+        "title": "Blanket dumplings",
+        "title_inferred": false,
+        "servings": null,
+        "source_handle": "thecontrarianmoney",
+        "sections": [
+          {
+            "name": "Ingredients",
+            "ingredients": [
+              { "raw_text": "1 lb ground pork", "name": "pork mince", "qty": 450, "unit": "g", "optional": false, "is_topping": false },
+              { "raw_text": "1/3 cup green onions, thinly sliced", "name": "spring onion", "qty": 80, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp fresh ginger, grated", "name": "ginger", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "4 garlic cloves, minced", "name": "garlic", "qty": 4, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp oyster sauce", "name": "oyster sauce", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp black pepper", "name": "black pepper", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp chili crisp", "name": "chilli crisp", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "3 tbsp soy sauce", "name": "soy sauce", "qty": 45, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1½ tsp sesame oil", "name": "sesame oil", "qty": 7.5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp rice vinegar", "name": "rice vinegar", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "18-20 dumpling wrappers", "name": "dumpling wrappers", "qty": 20, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "1/4 cup chicken broth", "name": "chicken stock", "qty": 60, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "Avocado oil", "name": "avocado oil", "qty": null, "unit": null, "optional": false, "is_topping": false }
+            ]
+          },
+          {
+            "name": "For topping",
+            "ingredients": [
+              { "raw_text": "Soy sauce", "name": "soy sauce", "qty": null, "unit": null, "optional": true, "is_topping": true },
+              { "raw_text": "Chili crisp", "name": "chilli crisp", "qty": null, "unit": null, "optional": true, "is_topping": true },
+              { "raw_text": "Green onions", "name": "spring onion", "qty": null, "unit": null, "optional": true, "is_topping": true },
+              { "raw_text": "Sesame seeds", "name": "sesame seeds", "qty": null, "unit": null, "optional": true, "is_topping": true }
+            ]
+          }
+        ],
+        "steps": [
+          { "step_no": 1, "text": "In a bowl, combine the ground pork, green onions, grated ginger, garlic, oyster sauce, black pepper, chilli", "timer_seconds": null }
+        ],
+        "steps_truncated": true,
+        "notes": "Under 25 minutes"
+      }
+    },
+
+    {
+      "id": "butter_chicken",
+      "images": ["IMG_2280.PNG"],
+      "traps": [
+        "no title visible -> must be inferred, title_inferred true",
+        "six spices crammed into ONE bullet -> must split into six entries",
+        "@elmlea_ukie sits mid-list and is not an ingredient",
+        "'tumeric' misspelled twice -> normalise name, preserve raw_text",
+        "3/4 tbsp -> 11.25 ml",
+        "butter appears in TWO sections (2 tbsp + 2 tbsp)",
+        "fenugreek appears in TWO sections",
+        "210C is already metric -> do not convert"
+      ],
+      "expected": {
+        "title": "Butter chicken with garlic naan",
+        "title_inferred": true,
+        "servings": 5,
+        "source_handle": null,
+        "sections": [
+          {
+            "name": "Marinade",
+            "ingredients": [
+              { "raw_text": "2 tbsp Greek yogurt", "name": "greek yoghurt", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp garam masala", "name": "garam masala", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp tumeric", "name": "turmeric", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp salt", "name": "salt", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp chilli powder", "name": "chilli powder", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp ginger and garlic paste", "name": "ginger garlic paste", "qty": 15, "unit": "ml", "optional": false, "is_topping": false }
+            ]
+          },
+          {
+            "name": "Sauce",
+            "ingredients": [
+              { "raw_text": "2 red onions finely diced", "name": "red onion", "qty": 2, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "1 can of chopped tomatoes", "name": "chopped tomatoes", "qty": 400, "unit": "g", "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp garam masala", "name": "garam masala", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp tumeric", "name": "turmeric", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "3/4 tbsp chilli powder", "name": "chilli powder", "qty": 11.25, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "3/4 tbsp salt", "name": "salt", "qty": 11.25, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp fenugreek", "name": "fenugreek", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp brown sugar", "name": "brown sugar", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "150ml double cream (heavy whipping cream)", "name": "thickened cream", "qty": 150, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp butter", "name": "butter", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "10 chicken thighs chopped", "name": "chicken thighs", "qty": 10, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "chopped coriander for garnishing", "name": "coriander", "qty": null, "unit": null, "optional": true, "is_topping": true }
+            ]
+          },
+          {
+            "name": "Garlic butter naan",
+            "ingredients": [
+              { "raw_text": "Naan bread (can get it from any supermarket)", "name": "naan bread", "qty": null, "unit": null, "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp butter melted", "name": "butter", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "3 garlic cloves finely chopped", "name": "garlic", "qty": 3, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp fenugreek", "name": "fenugreek", "qty": 5, "unit": "ml", "optional": false, "is_topping": false }
+            ]
+          }
+        ],
+        "steps": [
+          { "step_no": 1, "text": "Marinade the chicken thighs in yogurt and the spices. Leave to marinate for at least 30 minutes, preferably overnight.", "timer_seconds": 1800 },
+          { "step_no": 2, "text": "Put on a baking tray and grill at 210C for 25 minutes.", "timer_seconds": 1500 },
+          { "step_no": 3, "text": "Fry the chopped onions until golden brown, then add the chopped tomatoes followed by 3/4 of the can of water. Mix until well incorporated, then add the spices. Cook for a further 10 minutes on low heat.", "timer_seconds": 600 },
+          { "step_no": 4, "text": "Let the sauce cool down, then blend until smooth.", "timer_seconds": null },
+          { "step_no": 5, "text": "Return the sauce to the pan with the cooked chicken thighs. Mix well. Add the double cream and butter, and finish with fresh coriander. Cook for a further 10 minutes on low heat.", "timer_seconds": 600 }
+        ],
+        "steps_truncated": false,
+        "notes": null
+      },
+      "aggregation_check": {
+        "_comment": "What build_shopping_list must produce for this recipe alone.",
+        "butter": { "ml": 60, "_from": "30 sauce + 30 naan" },
+        "garam masala": { "ml": 45, "_from": "15 marinade + 30 sauce" },
+        "turmeric": { "ml": 30, "_from": "15 marinade + 15 sauce" },
+        "chilli powder": { "ml": 16.25, "_from": "5 marinade + 11.25 sauce" },
+        "salt": { "ml": 16.25, "_from": "5 marinade + 11.25 sauce" },
+        "fenugreek": { "ml": 10, "_from": "5 sauce + 5 naan" },
+        "garlic": { "each": 3, "_from": "naan only; the paste is a separate ingredient" }
+      }
+    },
+
+    {
+      "id": "shawarma",
+      "images": ["IMG_2278.PNG", "IMG_2279.PNG"],
+      "traps": [
+        "TWO images of ONE post — Tzatziki and Salad appear in BOTH",
+        "concatenating gives duplicate sections and double the yoghurt",
+        "the iOS Saved header hides salt/turmeric/coriander in IMG_2279; IMG_2278 covers them",
+        "425F -> 220C",
+        "'Juice of 1 lemon' is each, '1 tbsp lemon juice' is ml — same fruit, different units",
+        "'Pita or naan' is an unsectioned trailing item with no quantity",
+        "hashtags at the end are not ingredients"
+      ],
+      "expected": {
+        "title": "Chicken shawarma",
+        "title_inferred": false,
+        "servings": null,
+        "source_handle": null,
+        "sections": [
+          {
+            "name": "Chicken shawarma",
+            "ingredients": [
+              { "raw_text": "2 lbs boneless skinless chicken thighs", "name": "chicken thighs", "qty": 900, "unit": "g", "optional": false, "is_topping": false },
+              { "raw_text": "3 tbsp olive oil", "name": "olive oil", "qty": 45, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp tomato paste", "name": "tomato paste", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "⅓ cup Greek yogurt", "name": "greek yoghurt", "qty": 80, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "Juice of 1 lemon", "name": "lemon", "qty": 1, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "2 garlic heads", "name": "garlic", "qty": 2, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "2 tsp cumin", "name": "cumin", "qty": 10, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "2 tsp smoked paprika", "name": "smoked paprika", "qty": 10, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1½ tsp coriander", "name": "ground coriander", "qty": 7.5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp turmeric", "name": "turmeric", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp salt", "name": "salt", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ tsp pepper", "name": "black pepper", "qty": 2.5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "¼ tsp cayenne", "name": "cayenne pepper", "qty": 1.25, "unit": "ml", "optional": false, "is_topping": false }
+            ]
+          },
+          {
+            "name": "Tzatziki",
+            "ingredients": [
+              { "raw_text": "1 cup Greek yogurt", "name": "greek yoghurt", "qty": 240, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ cucumber, grated and squeezed dry", "name": "cucumber", "qty": 0.5, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "2 tbsp mayo", "name": "mayonnaise", "qty": 30, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp olive oil", "name": "olive oil", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp lemon juice", "name": "lemon juice", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tbsp dill", "name": "dill", "qty": 15, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ tsp salt", "name": "salt", "qty": 2.5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ tsp pepper", "name": "black pepper", "qty": 2.5, "unit": "ml", "optional": false, "is_topping": false }
+            ]
+          },
+          {
+            "name": "Salad",
+            "ingredients": [
+              { "raw_text": "1 cup cherry tomatoes", "name": "cherry tomatoes", "qty": 240, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 small red onion", "name": "red onion", "qty": 1, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "½ cup cucumber", "name": "cucumber", "qty": 120, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "¼ cup parsley", "name": "parsley", "qty": 60, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ tsp dill", "name": "dill", "qty": 2.5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "Juice of ½ lemon", "name": "lemon", "qty": 0.5, "unit": "each", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp olive oil", "name": "olive oil", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "1 tsp salt", "name": "salt", "qty": 5, "unit": "ml", "optional": false, "is_topping": false },
+              { "raw_text": "½ tsp pepper", "name": "black pepper", "qty": 2.5, "unit": "ml", "optional": false, "is_topping": false }
+            ]
+          },
+          {
+            "name": "To serve",
+            "ingredients": [
+              { "raw_text": "Pita or naan", "name": "pita bread", "qty": null, "unit": null, "optional": false, "is_topping": false }
+            ]
+          }
+        ],
+        "steps": [
+          { "step_no": 1, "text": "Slice the chicken and mix with olive oil, tomato paste, Greek yogurt, lemon juice, and spices. Marinate for at least 30 minutes.", "timer_seconds": 1800 },
+          { "step_no": 2, "text": "Cut the tops off the garlic heads, drizzle with olive oil and salt, wrap in foil, and bake with the chicken at 220C for 25 minutes. Squeeze the roasted garlic into the chicken and toss.", "timer_seconds": 1500 },
+          { "step_no": 3, "text": "Mix all tzatziki ingredients together and chill for 30 minutes.", "timer_seconds": 1800 },
+          { "step_no": 4, "text": "Toss all salad ingredients together.", "timer_seconds": null },
+          { "step_no": 5, "text": "Fill warm pita or naan with tzatziki, chicken, and salad.", "timer_seconds": null }
+        ],
+        "steps_truncated": false,
+        "notes": null
+      },
+      "aggregation_check": {
+        "_comment": "Cross-section sums. Note the lemon problem.",
+        "greek yoghurt": { "ml": 320, "_from": "80 chicken + 240 tzatziki" },
+        "olive oil": { "ml": 65, "_from": "45 chicken + 15 tzatziki + 5 salad" },
+        "salt": { "ml": 12.5, "_from": "5 + 2.5 + 5" },
+        "black pepper": { "ml": 7.5, "_from": "2.5 + 2.5 + 2.5" },
+        "dill": { "ml": 17.5, "_from": "15 tzatziki + 2.5 salad" },
+        "cucumber": {
+          "each": 0.5,
+          "ml": 120,
+          "_problem": "Same ingredient, two incompatible units. g_per_each on the canonical row must resolve both to grams before summing, or the list shows cucumber twice."
+        },
+        "lemon": {
+          "each": 1.5,
+          "_problem": "Tzatziki's '1 tbsp lemon juice' is a DIFFERENT canonical ingredient (lemon juice, ml) unless you alias it back to lemon. Decide which, and be consistent — this is the single most instructive case in the fixture."
+        }
+      }
+    }
+  ],
+
+  "scoring": {
+    "must_pass": [
+      "shawarma returns exactly 4 sections, not 6 or 7",
+      "tzatziki and salad each appear once",
+      "butter chicken title_inferred is true",
+      "butter chicken sauce section has 12 entries (the crammed line split into 6)",
+      "no entry has @elmlea_ukie or a hashtag in raw_text",
+      "dumplings steps_truncated is true",
+      "avocado oil qty is null, not 15 or 30",
+      "every unit is one of g, ml, each, or null"
+    ],
+    "should_pass": [
+      "0.75 for 3/4 tbsp -> 11.25 ml exactly",
+      "425F -> 220C in shawarma step 2",
+      "timer_seconds present on every step with an explicit duration",
+      "dumpling wrappers resolve to 20, not 18"
+    ]
+  }
+}
