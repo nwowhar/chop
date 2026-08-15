@@ -11,6 +11,11 @@ export const supabase = createClient(url, key);
 
 // ---------------------------------------------------------------
 // Household
+//
+// Create and join go through SECURITY DEFINER functions. Doing it
+// client-side fails RLS: the row has to exist before you can be a
+// member of it, but the read policy requires membership. The
+// function does both in one transaction.
 // ---------------------------------------------------------------
 
 export async function getHousehold() {
@@ -28,42 +33,12 @@ export async function createHousehold(name) {
   const { data, error } = await supabase.rpc('create_household', { p_name: name });
   if (error) throw error;
   return data[0];
-
-  const { data: hh, error } = await supabase
-    .from('households')
-    .insert({ name })
-    .select('id, name, invite_code')
-    .single();
-  if (error) throw error;
-
-  const { error: memErr } = await supabase
-    .from('household_members')
-    .insert({ household_id: hh.id, user_id: user.user.id, role: 'owner' });
-  if (memErr) throw memErr;
-
-  return hh;
 }
 
 export async function joinHousehold(code) {
   const { data, error } = await supabase.rpc('join_household', { p_code: code });
   if (error) throw error;
   return data[0];
-
-  const { data: hh, error } = await supabase
-    .from('households')
-    .select('id, name, invite_code')
-    .eq('invite_code', code.trim().toLowerCase())
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!hh) throw new Error("That code doesn't match a household");
-
-  const { error: memErr } = await supabase
-    .from('household_members')
-    .insert({ household_id: hh.id, user_id: user.user.id, role: 'member' });
-  if (memErr) throw memErr;
-
-  return hh;
 }
 
 // ---------------------------------------------------------------
