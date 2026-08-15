@@ -149,7 +149,13 @@ export default function Recipe({ id, household, go }) {
 
       {steps.length > 0 && (
         <section>
-          <div className="cut-label">Method</div>
+          <div className="row-between" style={{ marginTop: 'var(--s-5)' }}>
+            <span className="eyebrow">Method</span>
+            <button className="btn btn-accent" onClick={() => go(`/cook/${id}`)}>
+              Start cook mode
+            </button>
+          </div>
+          <hr className="cut" />
           {steps.map((s) => (
             <div className="step" key={s.step_no}>
               <span className="step-no">{String(s.step_no).padStart(2, '0')}</span>
