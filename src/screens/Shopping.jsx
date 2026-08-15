@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   buildList, getList, toggleItem, addManualItem, subscribeList,
-  mondayOf, supabase,
+  clearList, haveAlready, mondayOf, supabase,
 } from '../lib/supabase';
 
-const AISLES = ['produce', 'bakery', 'meat', 'seafood', 'dairy',
-                'frozen', 'pantry', 'spice', 'drinks', 'household'];
+const AISLES = [
+  ['produce', 'Produce'], ['bakery', 'Bakery'], ['meat', 'Meat'],
+  ['seafood', 'Seafood'], ['dairy', 'Dairy'], ['frozen', 'Frozen'],
+  ['pantry', 'Pantry'], ['spice', 'Spices'], ['drinks', 'Drinks'],
+  ['household', 'Other'],
+];
 
 export default function Shopping({ household }) {
   const [weekOf] = useState(mondayOf());
@@ -13,6 +17,7 @@ export default function Shopping({ household }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [manual, setManual] = useState('');
+  const [showDone, setShowDone] = useState(false);
   const chan = useRef(null);
 
   async function load() {
@@ -36,7 +41,6 @@ export default function Shopping({ household }) {
   }
 
   async function tick(item) {
-    // optimistic — realtime confirms
     setData((d) => ({
       ...d,
       items: d.items.map((i) => i.id === item.id
@@ -44,6 +48,17 @@ export default function Shopping({ household }) {
         : i),
     }));
     await toggleItem(item.id, !item.checked_at);
+  }
+
+  async function have(item) {
+    setData((d) => ({ ...d, items: d.items.filter((i) => i.id !== item.id) }));
+    try { await haveAlready(item.id); } catch (e) { setError(e.message); load(); }
+  }
+
+  async function wipe() {
+    if (!confirm('Clear the list? Anything you added by hand stays.')) return;
+    await clearList(data.list.id, true);
+    load();
   }
 
   if (error) return <p className="error">{error}</p>;
@@ -54,32 +69,43 @@ export default function Shopping({ household }) {
         <h1>Shopping</h1>
         <div className="empty">
           <p>No list for this week yet.</p>
-          <button className="btn btn-primary" onClick={generate} disabled={busy}>
+          <button className="btn btn-accent" onClick={generate} disabled={busy}>
             {busy ? 'Building…' : 'Build from this week’s plan'}
           </button>
+          <p className="tiny" style={{ marginTop: 12 }}>
+            Or open a recipe and add just its missing ingredients.
+          </p>
         </div>
       </div>
     );
   }
 
+  const todo = data.items.filter((i) => !i.checked_at);
+  const done = data.items.filter((i) => i.checked_at);
+  const pct = data.items.length
+    ? Math.round((done.length / data.items.length) * 100) : 0;
+
   const groups = AISLES
-    .map((aisle) => ({
-      aisle,
-      items: data.items.filter((i) => (i.ingredients?.category ?? 'household') === aisle),
+    .map(([key, label]) => ({
+      key, label,
+      items: todo.filter((i) => (i.ingredients?.category ?? 'household') === key),
     }))
     .filter((g) => g.items.length);
 
-  const manualItems = data.items.filter((i) => i.manual && !i.ingredient_id);
-  const remaining = data.items.filter((i) => !i.checked_at).length;
+  const other = todo.filter((i) => !i.ingredients);
 
   return (
     <div className="stack">
       <div className="row-between">
         <h1>Shopping</h1>
-        <span className="num">{remaining} left</span>
+        <span className="num">{todo.length} to get</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className="progress">
+        <span className="progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+
+      <div className="searchbar">
         <input className="field" placeholder="Add something else"
           value={manual} onChange={(e) => setManual(e.target.value)}
           onKeyDown={async (e) => {
@@ -91,53 +117,93 @@ export default function Shopping({ household }) {
       </div>
 
       {groups.map((g) => (
-        <div key={g.aisle}>
-          <div className="cut-label">{g.aisle}</div>
+        <section key={g.key}>
+          <div className="cut-label">{g.label}</div>
           <div className="list">
             {g.items.map((i) => (
-              <Item key={i.id} item={i} onTick={() => tick(i)} />
+              <Item key={i.id} item={i} onTick={() => tick(i)} onHave={() => have(i)} />
             ))}
           </div>
-        </div>
+        </section>
       ))}
 
-      {manualItems.length > 0 && (
-        <div>
-          <div className="cut-label">Other</div>
+      {other.length > 0 && (
+        <section>
+          <div className="cut-label">Added by hand</div>
           <div className="list">
-            {manualItems.map((i) => (
-              <Item key={i.id} item={i} onTick={() => tick(i)} />
+            {other.map((i) => (
+              <Item key={i.id} item={i} onTick={() => tick(i)} onHave={() => have(i)} />
             ))}
           </div>
+        </section>
+      )}
+
+      {todo.length === 0 && (
+        <div className="card card-pad" style={{ background: 'var(--green-wash)' }}>
+          <strong>That's the lot.</strong>
+          <p className="muted" style={{ margin: '4px 0 0' }}>
+            Everything ticked off is now in your pantry.
+          </p>
         </div>
       )}
 
+      {done.length > 0 && (
+        <section>
+          <button className="btn btn-quiet" onClick={() => setShowDone(!showDone)}>
+            {showDone ? 'Hide' : 'Show'} {done.length} in the trolley
+          </button>
+          {showDone && (
+            <div className="list" style={{ marginTop: 'var(--s-2)' }}>
+              {done.map((i) => (
+                <Item key={i.id} item={i} onTick={() => tick(i)} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       <hr className="cut" />
-      <button className="btn btn-quiet" onClick={generate} disabled={busy}>
-        {busy ? 'Rebuilding…' : 'Rebuild from plan'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-quiet" onClick={generate} disabled={busy}>
+          {busy ? 'Rebuilding…' : 'Rebuild from plan'}
+        </button>
+        <button className="btn btn-quiet" style={{ color: 'var(--alert)' }} onClick={wipe}>
+          Clear list
+        </button>
+      </div>
       <p className="tiny">
-        Rebuilding keeps anything you added by hand and replaces the rest.
+        Rebuilding replaces recipe items and keeps anything you typed in.
       </p>
     </div>
   );
 }
 
-function Item({ item, onTick }) {
+function Item({ item, onTick, onHave }) {
   const name = item.ingredients?.canonical_name ?? item.label ?? 'Item';
   const done = !!item.checked_at;
 
   return (
-    <div className={`row ${done ? 'row-done' : ''}`} onClick={onTick}>
-      <div className="row-name">
+    <div className={`row shop-row ${done ? 'row-done' : ''}`}>
+      <button className={`tickbox ${done ? 'on' : ''}`} onClick={onTick}
+        aria-label={done ? 'Not bought' : 'Bought'}>
+        {done ? '✓' : ''}
+      </button>
+
+      <div className="row-name" onClick={onTick}>
         {name}
         {item.source_recipe_ids?.length > 1 && (
           <span className="row-sub">For {item.source_recipe_ids.length} recipes</span>
         )}
       </div>
+
       <span className="num row-qty">
-        {item.is_check_only ? 'check' : fmt(item.qty_to_buy, item.unit)}
+        {item.is_check_only ? 'some' : fmt(item.qty_to_buy, item.unit)}
       </span>
+
+      {!done && onHave && (
+        <button className="btn btn-quiet have-btn" onClick={onHave}
+          title="Already in the kitchen">have it</button>
+      )}
     </div>
   );
 }
