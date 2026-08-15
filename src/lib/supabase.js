@@ -70,7 +70,7 @@ export async function uploadImages(householdId, files) {
   return paths;
 }
 
-export async function createImportJob(householdId, imagePaths, hint) {
+export async function createImportJob(householdId, imagePaths, hint, theme) {
   const { data: user } = await supabase.auth.getUser();
 
   const { data, error } = await supabase
@@ -80,6 +80,7 @@ export async function createImportJob(householdId, imagePaths, hint) {
       created_by: user.user.id,
       image_paths: imagePaths,
       hint: hint?.trim() || null,
+      theme: theme || null,
     })
     .select('id')
     .single();
@@ -157,6 +158,14 @@ function watchJob(jobId, onStage) {
   });
 }
 
+// Generate a recipe from a dish name — no screenshot. Runs the
+// same pipeline as an import, so it lands as a real row with
+// canonical ingredients and can be planned and shopped for.
+export async function generateRecipe(householdId, dish, theme, onStage) {
+  const jobId = await createImportJob(householdId, [], dish, theme);
+  return await runParse(jobId, onStage);
+}
+
 // ---------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------
@@ -164,7 +173,7 @@ function watchJob(jobId, onStage) {
 export async function listRecipes() {
   const { data, error } = await supabase
     .from('recipes')
-    .select('id, title, servings, source_handle, steps_origin, tags, created_at')
+    .select('id, title, servings, source_handle, steps_origin, tags, macros_per_serve, created_at')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
@@ -196,7 +205,28 @@ export async function getRecipe(id) {
     .eq('recipe_id', id)
     .order('step_no');
 
-  return { recipe, sections: sections ?? [], ingredients: ingredients ?? [], steps: steps ?? [] };
+  // what's already in the kitchen
+  const { data: stock } = await supabase
+    .from('recipe_stock_view')
+    .select('recipe_ingredient_id, stock, have_qty, expires_at')
+    .eq('recipe_id', id);
+
+  const stockBy = new Map((stock ?? []).map((s) => [s.recipe_ingredient_id, s]));
+
+  return {
+    recipe,
+    sections: sections ?? [],
+    ingredients: (ingredients ?? []).map((i) => ({ ...i, stock: stockBy.get(i.id) })),
+    steps: steps ?? [],
+  };
+}
+
+export async function addRecipeToList(householdId, recipeId, weekOf) {
+  const { data, error } = await supabase.rpc('add_recipe_to_list', {
+    hid: householdId, rid: recipeId, wk: isoDate(weekOf ?? mondayOf()),
+  });
+  if (error) throw error;
+  return data;
 }
 
 export async function deleteRecipe(id) {
