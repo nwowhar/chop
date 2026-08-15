@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { shrink } from './shrink';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -48,17 +49,23 @@ export async function joinHousehold(code) {
 export async function uploadImages(householdId, files) {
   const paths = [];
 
-  for (const file of files) {
-    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  // Shrink first, then upload in parallel. A full-size iPhone
+  // screenshot is ~1.5 MB; shrunk it's under 150 KB.
+  const shrunk = await Promise.all(files.map(shrink));
+
+  const uploads = shrunk.map(async (file) => {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
     const path = `${householdId}/${crypto.randomUUID()}.${ext}`;
 
     const { error } = await supabase.storage
       .from('recipe-images')
-      .upload(path, file, { contentType: file.type || 'image/png' });
+      .upload(path, file, { contentType: file.type || 'image/jpeg' });
 
     if (error) throw new Error(`Upload failed: ${error.message}`);
-    paths.push(path);
-  }
+    return path;
+  });
+
+  paths.push(...await Promise.all(uploads));
 
   return paths;
 }
@@ -80,20 +87,73 @@ export async function createImportJob(householdId, imagePaths) {
   return data.id;
 }
 
-export async function runParse(jobId) {
-  const { data, error } = await supabase.functions.invoke('parse-recipe', {
-    body: { job_id: jobId },
+// Kick the function off and watch the job row rather than holding
+// the HTTP connection open. A parse can outlast the request, and a
+// dropped connection used to look like a failure even when the
+// function had finished fine.
+export async function runParse(jobId, onStage) {
+  supabase.functions
+    .invoke('parse-recipe', { body: { job_id: jobId } })
+    .catch(() => { /* the job row is the source of truth */ });
+
+  return await watchJob(jobId, onStage);
+}
+
+function watchJob(jobId, onStage) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let channel = null;
+
+    const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(bail);
+      if (channel) supabase.removeChannel(channel);
+      fn(arg);
+    };
+
+    const check = async () => {
+      const { data } = await supabase
+        .from('import_jobs')
+        .select('status, stage, error, recipe_id, parsed')
+        .eq('id', jobId)
+        .maybeSingle();
+
+      if (!data) return;
+      if (data.stage && onStage) onStage(data.stage);
+
+      if (data.status === 'failed') {
+        finish(reject, new Error(data.error || 'Import failed'));
+      } else if (data.status === 'review' || data.status === 'saved') {
+        const p = data.parsed ?? {};
+        finish(resolve, {
+          recipe_id: data.recipe_id,
+          title: p.title,
+          title_inferred: p.title_inferred,
+          steps_origin: p.steps_origin,
+          sections: p.sections?.length ?? 0,
+          ingredients: p.sections?.reduce((n, s) => n + s.ingredients.length, 0) ?? 0,
+          unmatched: [],
+        });
+      }
+    };
+
+    channel = supabase
+      .channel(`job-${jobId}`)
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'import_jobs', filter: `id=eq.${jobId}` },
+        check)
+      .subscribe();
+
+    // Realtime can miss an update; poll as a backstop.
+    const poll = setInterval(check, 2500);
+    const bail = setTimeout(
+      () => finish(reject, new Error('Timed out. Check the Import list in a moment.')),
+      180000);
+
+    check();
   });
-  if (error) {
-    // the function returns useful detail in the body on 4xx
-    let detail = error.message;
-    try {
-      const ctx = await error.context?.json();
-      if (ctx?.error) detail = ctx.error;
-    } catch { /* body wasn't json */ }
-    throw new Error(detail);
-  }
-  return data;
 }
 
 // ---------------------------------------------------------------
