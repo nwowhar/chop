@@ -94,8 +94,8 @@
 
 .ok {
   font-size: var(--t-small);
-  color: var(--on-acid);
-  background: var(--acid-wash);
+  color: var(--green);
+  background: var(--green-wash);
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-md);
 }
@@ -235,4 +235,24 @@
   width: 20px; height: 20px;
   flex-shrink: 0;
   accent-color: var(--ink);
+}
+
+/* ---- wordmark in the nav ----------------------------------- */
+
+.nav-brand {
+  position: relative;
+  display: inline-block;
+  margin-right: auto;
+  flex-shrink: 0;
+}
+.nav-brand .mark-slash {
+  left: -3px; top: 0.40em;
+  width: 112%; height: 6px;
+}
+.nav-brand .mark-text {
+  position: relative;
+  font-size: 21px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.03em;
 }

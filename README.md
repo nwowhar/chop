@@ -1,122 +1,71 @@
-# Chop
+# Chop!
 
 Screenshot a recipe off Instagram. Get a shopping list, a week's meal plan, and
 something you can follow in the kitchen.
 
 Two-person household, shared database, runs free at personal scale.
 
----
+## Stack
 
-## What's here
+React + Vite on Vercel. Supabase for Postgres, auth, storage, realtime and the
+edge function. Gemini for parsing screenshots. No CSS framework — styling is
+the theme tokens in `src/styles/`.
+
+## Layout
 
 ```
-docs/
-  ARCHITECTURE.md          full build spec — read this first
-  parser-prompt.md         the vision + reconstruction prompts
-supabase/migrations/
-  001_initial_schema.sql   tables, RLS, triggers, core functions
-  002_settings.sql         yield conversion, settings, rewired list builder
-  003_seed_ingredients.sql 217 canonical ingredients
-fixtures/
-  expected.json            hand-checked parser output for the four images
-  images/                  the four real screenshots
-scripts/
-  gen_seed.py              regenerates 003 — edit this, not the SQL
-src/styles/
-  theme.css                the "Mise" theme
+index.html            Vite entry
+package.json          vite is a regular dependency, not a devDependency,
+                      because Vercel builds with NODE_ENV=production
+src/
+  App.jsx             routing
+  main.jsx            entry
+  components/Nav.jsx
+  lib/supabase.js     every database call lives here
+  screens/            Login, Onboarding, Import, Recipes, Recipe,
+                      Plan, Shopping, Pantry
+  styles/theme.css    "Kappo" design tokens
+  styles/app.css      layout
+supabase/
+  migrations/         001-006, run in order
+  functions/parse-recipe/index.ts
+docs/                 architecture, parser prompt, deploy notes
+fixtures/             four real screenshots + expected parser output
+scripts/gen_seed.py   regenerates migration 003
 ```
-
-Nothing here is application code yet. This is the spec, the database and the
-design system.
-
----
 
 ## Setup
 
-**1. Supabase**
+**Supabase** — run migrations 001 through 006 in order in the SQL editor. Then:
 
-Create two projects: `chop-dev` and `chop-prod`. Run the migrations in order —
-002 must come before 003, because it adds columns that 003 populates.
+- Storage → new bucket `recipe-images`, private
+- Authentication → Providers → Email on, **Confirm email off**
+- Edge Functions → Secrets → `GEMINI_API_KEY`
+- Deploy `parse-recipe` (paste `supabase/functions/parse-recipe/index.ts`)
 
-```bash
-supabase link --project-ref <ref>
-supabase db push
-```
+**Vercel** — import the repo, framework preset Vite, leave build settings on
+defaults. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 
-Or paste each file into the SQL editor in order.
+**Keepalive** — free Supabase projects pause after 7 days idle. Add a GitHub
+Action that pings the project daily.
 
-**2. Stop the free tier pausing**
-
-Free projects pause after 7 days idle. Add `.github/workflows/keepalive.yml`:
-
-```yaml
-name: keepalive
-on:
-  schedule: [{ cron: '0 3 * * *' }]
-  workflow_dispatch:
-jobs:
-  ping:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          curl -sS "$SUPABASE_URL/rest/v1/ingredients?select=id&limit=1" \
-            -H "apikey: $SUPABASE_ANON_KEY" -o /dev/null -w '%{http_code}\n'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-```
-
-**3. Verify the seed**
+## Verify
 
 ```sql
-select * from match_ingredient('tumeric');
+select count(*) from ingredients;              -- 217
+select * from match_ingredient('chicken thighs');
+select display_qty(1450, 'g');                 -- 1.5 kg
 ```
-
-Should return turmeric with a high score. If a misspelling doesn't resolve, the
-trigram threshold needs loosening before anything downstream will work.
-
-More checks are commented at the bottom of `003_seed_ingredients.sql`.
-
----
-
-## Still to build
-
-- Storage bucket for screenshots, plus its RLS policies (not in the migrations)
-- Two edge functions: vision parse, step reconstruction
-- Unit resolution wiring in the parse pipeline (`to_base()` exists, nothing calls it)
-- Nine screens — see the phase list in `docs/ARCHITECTURE.md`
-
-Offline sync for the shopping list is the only genuinely hard piece. Everything
-else is mechanical.
-
----
-
-## Working on the ingredient table
-
-Edit `scripts/gen_seed.py` and re-run it. It validates column counts and catches
-duplicate aliases across ingredients, which hand-editing the SQL will not.
-
-```bash
-python3 scripts/gen_seed.py
-```
-
----
-
-## Testing the parser
-
-Feed `fixtures/images/` through the prompt in `docs/parser-prompt.md` and diff
-against `fixtures/expected.json`. The `must_pass` list in that file is the bar.
-
-The three cases each break differently: truncated steps, a missing title with
-six spices crammed onto one line, and two overlapping screenshots of one post
-that have to be merged rather than concatenated.
-
----
 
 ## Design rules
 
-From `theme.css`, worth not violating:
+- One accent per screen. `.btn-primary` (charcoal) does most of the work;
+  `.btn-accent` (persimmon) appears at most once.
+- Every quantity gets `.num`. Tabular figures or a 30-item list stops scanning.
+- The slash behind the wordmark appears once per screen, on the logo only.
+- Green carries state and section labels. It is never a call to action.
 
-- One accent element per screen — the next action. Slate carries state.
-- Every quantity gets `.num`. Tabular figures or a 30-item list stops being readable.
-- `.cut` dividers mark real content boundaries only, not decoration.
+## Not built yet
+
+Kitchen mode, receipt import, macros and the dietary filters. See the phase
+list in `docs/ARCHITECTURE.md`.

@@ -73,5 +73,5 @@ function readRoute() {
 }
 
 function Splash() {
-  return <div className="splash"><span className="eyebrow">Chop</span></div>;
+  return <div className="splash"><span className="mark"><i className="mark-slash" /><span className="mark-text" style={{ fontSize: 46 }}>Chop!</span></span></div>;
 }

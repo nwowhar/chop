@@ -35,7 +35,7 @@ export default function Login() {
     <div className="main">
       <div className="center-card card card-pad stack">
         <div>
-          <h1>Chop</h1>
+          <h1 className="mark"><i className="mark-slash" /><span className="mark-text" style={{ fontSize: 46 }}>Chop!</span></h1>
           <p className="muted">Screenshot a recipe. Get a shopping list.</p>
         </div>
 

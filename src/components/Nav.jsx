@@ -15,7 +15,7 @@ export default function Nav({ route, go, household }) {
   return (
     <>
       <nav className="nav">
-        <span className="nav-brand">Chop</span>
+        <span className="nav-brand mark"><i className="mark-slash" /><span className="mark-text">Chop!</span></span>
         {TABS.map(([name, path, label]) => (
           <button key={name} className="nav-link"
             aria-current={route.name === name ? 'page' : undefined}
