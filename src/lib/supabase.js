@@ -25,8 +25,9 @@ export async function getHousehold() {
 }
 
 export async function createHousehold(name) {
-  const { data: user } = await supabase.auth.getUser();
-  if (!user?.user) throw new Error('Not signed in');
+  const { data, error } = await supabase.rpc('create_household', { p_name: name });
+  if (error) throw error;
+  return data[0];
 
   const { data: hh, error } = await supabase
     .from('households')
@@ -44,8 +45,9 @@ export async function createHousehold(name) {
 }
 
 export async function joinHousehold(code) {
-  const { data: user } = await supabase.auth.getUser();
-  if (!user?.user) throw new Error('Not signed in');
+  const { data, error } = await supabase.rpc('join_household', { p_code: code });
+  if (error) throw error;
+  return data[0];
 
   const { data: hh, error } = await supabase
     .from('households')
