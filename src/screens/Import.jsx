@@ -5,6 +5,7 @@ export default function Import({ household, go }) {
   const fileInput = useRef(null);
   const [files, setFiles] = useState([]);
   const [asOne, setAsOne] = useState(false);
+  const [hint, setHint] = useState('');
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -33,26 +34,30 @@ export default function Import({ household, go }) {
     // asOne: every image is a scroll of the same post -> one job.
     // otherwise each image is its own recipe -> one job each.
     const groups = asOne ? [files] : files.map((f) => [f]);
+    // A hint names one dish, so it only applies when there's one recipe
+    const useHint = groups.length === 1 ? hint : '';
     const running = groups.map((g, i) => ({
       key: `${Date.now()}-${i}`,
       count: g.length,
       status: 'uploading',
+      stage: null,
       result: null,
       error: null,
     }));
     setJobs((j) => [...running, ...j]);
     setFiles([]);
+    setHint('');
 
-    for (const [i, group] of groups.entries()) {
+    await Promise.all(groups.map(async (group, i) => {
       const key = running[i].key;
       const patch = (p) => setJobs((j) => j.map((x) => (x.key === key ? { ...x, ...p } : x)));
 
       try {
         const paths = await uploadImages(household.id, group.map((g) => g.file));
-        patch({ status: 'parsing' });
+        patch({ status: 'parsing', stage: null });
 
-        const jobId = await createImportJob(household.id, paths);
-        const result = await runParse(jobId);
+        const jobId = await createImportJob(household.id, paths, useHint);
+        const result = await runParse(jobId, (stage) => patch({ stage }));
 
         patch({ status: 'done', result });
       } catch (e) {
@@ -60,7 +65,7 @@ export default function Import({ household, go }) {
       } finally {
         group.forEach((g) => URL.revokeObjectURL(g.url));
       }
-    }
+    }));
 
     setBusy(false);
   }
@@ -105,6 +110,18 @@ export default function Import({ household, go }) {
             </label>
           )}
 
+          {(files.length === 1 || asOne) && (
+            <div className="stack-s">
+              <input className="field" placeholder="Dish name (optional)"
+                value={hint} onChange={(e) => setHint(e.target.value)} />
+              <p className="tiny">
+                Worth filling in when the title is cut off, or the recipe is
+                only spoken in the video. It also helps the AI tell a ground
+                spice from the fresh herb.
+              </p>
+            </div>
+          )}
+
           {error && <p className="error">{error}</p>}
 
           <button className="btn btn-primary btn-block" onClick={start} disabled={busy}>
@@ -122,7 +139,11 @@ export default function Import({ household, go }) {
               {(j.status === 'uploading' || j.status === 'parsing') && <span className="spinner" />}
               <div style={{ flex: 1, minWidth: 0 }}>
                 {j.status === 'uploading' && <span className="muted">Uploading…</span>}
-                {j.status === 'parsing' && <span className="muted">Reading the recipe…</span>}
+                {j.status === 'parsing' && (
+                  <span className="muted">
+                    {j.stage === 'writing' ? 'Saving…' : 'Reading the recipe…'}
+                  </span>
+                )}
                 {j.status === 'failed' && <span style={{ color: 'var(--alert)' }}>{j.error}</span>}
                 {j.status === 'done' && (
                   <>
