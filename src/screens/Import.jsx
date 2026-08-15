@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { uploadImages, createImportJob, runParse, generateRecipe } from '../lib/supabase';
+import { uploadImages, createImportJob, runParse, generateRecipe, importUrl } from '../lib/supabase';
 
 export default function Import({ household, go }) {
   const fileInput = useRef(null);
@@ -8,6 +8,7 @@ export default function Import({ household, go }) {
   const [hint, setHint] = useState('');
   const [theme, setTheme] = useState('');
   const [dish, setDish] = useState('');
+  const [url, setUrl] = useState('');
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -93,6 +94,26 @@ export default function Import({ household, go }) {
     }
   }
 
+  async function fromUrl() {
+    if (!/^https?:\/\//i.test(url.trim())) { setError('Paste a full link'); return; }
+    setBusy(true); setError(null);
+
+    const key = `url-${Date.now()}`;
+    setJobs((j) => [{ key, count: 0, status: 'parsing', stage: null,
+                      result: null, error: null }, ...j]);
+    const patch = (p) => setJobs((j) => j.map((x) => (x.key === key ? { ...x, ...p } : x)));
+
+    try {
+      const result = await importUrl(household.id, url.trim(), (stage) => patch({ stage }));
+      patch({ status: 'done', result });
+      setUrl('');
+    } catch (e) {
+      patch({ status: 'failed', error: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const themes = [
     ['', 'Any'],
     ['high-protein', 'High protein'],
@@ -129,6 +150,23 @@ export default function Import({ household, go }) {
 
       {files.length === 0 && (
         <>
+          <div className="cut-label">Or paste a link</div>
+          <div className="card card-pad stack-s">
+            <div className="searchbar">
+              <input className="field" placeholder="https://www.recipetineats.com/…"
+                value={url} onChange={(e) => { setUrl(e.target.value); setError(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && fromUrl()} />
+              <button className="btn btn-primary" onClick={fromUrl} disabled={busy}>
+                Import
+              </button>
+            </div>
+            <p className="tiny">
+              Most recipe sites publish their recipes as structured data, so this
+              pulls the real ingredients, method and photo. Stays private to your
+              kitchen.
+            </p>
+          </div>
+
           <div className="cut-label">Or just ask</div>
           <div className="card card-pad stack-s">
             <input className="field" placeholder="Chicken katsu curry"
