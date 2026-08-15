@@ -65,7 +65,10 @@ export default function Recipes({ go }) {
           {shown.map((r, n) => (
             <button className="tile" key={r.id} onClick={() => go(`/recipe/${r.id}`)}>
               <div className={`tile-art tile-c${colour(r.id, n)}`}>
-                <span>dish photo</span>
+                {r.image_url
+                  ? <img src={r.image_url} alt="" loading="lazy"
+                      onError={(e) => { e.target.style.display = 'none'; }} />
+                  : <span>{r.title.slice(0, 2).toUpperCase()}</span>}
                 {r.tags?.includes('generated') && <span className="tile-flag">AI</span>}
               </div>
               <div className="tile-body">
