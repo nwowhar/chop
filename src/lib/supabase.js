@@ -70,7 +70,7 @@ export async function uploadImages(householdId, files) {
   return paths;
 }
 
-export async function createImportJob(householdId, imagePaths, hint, theme) {
+export async function createImportJob(householdId, imagePaths, hint, theme, sourceUrl) {
   const { data: user } = await supabase.auth.getUser();
 
   const { data, error } = await supabase
@@ -81,6 +81,7 @@ export async function createImportJob(householdId, imagePaths, hint, theme) {
       image_paths: imagePaths,
       hint: hint?.trim() || null,
       theme: theme || null,
+      source_url: sourceUrl || null,
     })
     .select('id')
     .single();
@@ -166,6 +167,14 @@ export async function generateRecipe(householdId, dish, theme, onStage) {
   return await runParse(jobId, onStage);
 }
 
+// Paste a link. Most recipe sites publish schema.org Recipe
+// JSON-LD, which is structured data meant to be read — so this
+// pulls the real recipe, and its photo, rather than guessing.
+export async function importUrl(householdId, url, onStage) {
+  const jobId = await createImportJob(householdId, [], null, null, url);
+  return await runParse(jobId, onStage);
+}
+
 // Five dish suggestions for a natural-language query. Cheap —
 // titles and one-liners only. The full recipe is written later,
 // and only for the one that gets picked.
@@ -205,7 +214,7 @@ export async function searchRecipes(q) {
 export async function listRecipes() {
   const { data, error } = await supabase
     .from('recipes')
-    .select('id, title, servings, source_handle, steps_origin, tags, macros_per_serve, created_at')
+    .select('id, title, servings, source_handle, steps_origin, tags, macros_per_serve, image_url, created_at')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data;
@@ -361,7 +370,8 @@ export async function getList(householdId, weekOf) {
   const { data: items } = await supabase
     .from('list_items')
     .select('*, ingredients(canonical_name, category, default_unit)')
-    .eq('list_id', list.id);
+    .eq('list_id', list.id)
+    .is('dismissed_at', null);
 
   return { list, items: items ?? [] };
 }
@@ -382,6 +392,21 @@ export async function addManualItem(listId, label) {
   const { error } = await supabase.from('list_items').insert({
     list_id: listId, label, manual: true, is_check_only: true,
   });
+  if (error) throw error;
+}
+
+export async function clearList(listId, keepManual = true) {
+  const { data, error } = await supabase.rpc('clear_list', {
+    lid: listId, keep_manual: keepManual,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// Different from ticking off: this says it's already in the
+// kitchen, so it stocks the pantry without recording a purchase.
+export async function haveAlready(itemId) {
+  const { error } = await supabase.rpc('have_already', { item_id: itemId });
   if (error) throw error;
 }
 
@@ -416,6 +441,13 @@ export async function setStock(householdId, ingredientId, inStock) {
     in_stock: inStock,
     added_at: new Date().toISOString(),
     confidence: 'confirmed',
+  });
+  if (error) throw error;
+}
+
+export async function setPantryQty(householdId, ingredientId, qty) {
+  const { error } = await supabase.rpc('set_pantry_qty', {
+    hid: householdId, ing: ingredientId, new_qty: qty,
   });
   if (error) throw error;
 }
