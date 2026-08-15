@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getRecipe, deleteRecipe } from '../lib/supabase';
+import { getRecipe, deleteRecipe, addRecipeToList } from '../lib/supabase';
 
-export default function Recipe({ id, go }) {
+export default function Recipe({ id, household, go }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [servings, setServings] = useState(null);
+  const [added, setAdded] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     getRecipe(id)
@@ -18,6 +20,12 @@ export default function Recipe({ id, go }) {
   const { recipe, sections, ingredients, steps } = data;
   const base = recipe.servings || 1;
   const scale = servings ? servings / base : 1;
+  const m = recipe.macros_per_serve;
+
+  const missing = ingredients.filter(
+    (i) => i.ingredient_id && i.stock?.stock === 'none' && !i.is_topping
+  );
+  const partial = ingredients.filter((i) => i.stock?.stock === 'partial');
 
   const bySection = new Map();
   for (const ing of ingredients) {
@@ -25,10 +33,14 @@ export default function Recipe({ id, go }) {
     if (!bySection.has(key)) bySection.set(key, []);
     bySection.get(key).push(ing);
   }
+  const ordered = sections.length ? sections : [{ id: 'none', name: 'Ingredients' }];
 
-  const ordered = sections.length
-    ? sections
-    : [{ id: 'none', name: 'Ingredients' }];
+  async function toList() {
+    setBusy(true);
+    try { await addRecipeToList(household.id, id); setAdded(true); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
 
   async function remove() {
     if (!confirm('Delete this recipe?')) return;
@@ -45,12 +57,58 @@ export default function Recipe({ id, go }) {
         <h1>{recipe.title}</h1>
         <p className="muted">
           {recipe.source_handle ? `@${recipe.source_handle}` : 'Imported'}
-          {recipe.tags?.includes('title-inferred') && ' · title guessed'}
         </p>
-        {recipe.steps_origin !== 'extracted' && (
-          <span className="badge badge-reconstructed" style={{ marginTop: 8 }}>
-            {recipe.steps_origin === 'partial' ? 'Steps partly reconstructed' : 'Steps reconstructed'}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {recipe.tags?.includes('generated') && (
+            <span className="badge badge-reconstructed">Generated</span>
+          )}
+          {recipe.tags?.includes('title-inferred') && (
+            <span className="badge">Title guessed</span>
+          )}
+          {recipe.steps_origin !== 'extracted' && (
+            <span className="badge badge-reconstructed">
+              {recipe.steps_origin === 'partial'
+                ? 'Steps partly reconstructed'
+                : 'Steps reconstructed'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {m && (
+        <div className="card card-pad">
+          <span className="eyebrow">Per serving</span>
+          <div style={{ display: 'flex', gap: 18, marginTop: 10, flexWrap: 'wrap' }}>
+            <Macro label="kcal"    value={m.kcal} />
+            <Macro label="protein" value={m.protein_g} unit="g" />
+            <Macro label="carbs"   value={m.carb_g} unit="g" />
+            <Macro label="fat"     value={m.fat_g} unit="g" />
+          </div>
+          <p className="tiny" style={{ marginTop: 10 }}>Estimated, not measured.</p>
+        </div>
+      )}
+
+      <div className="card card-pad stack-s">
+        <div className="row-between">
+          <span className="eyebrow">In your kitchen</span>
+          <span className="num">
+            {ingredients.length - missing.length}/{ingredients.length}
           </span>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
+          {missing.length === 0
+            ? 'You have everything for this.'
+            : `Missing ${missing.map((i) => i.ingredients?.canonical_name).join(', ')}.`}
+          {partial.length > 0 &&
+            ` Running low on ${partial.map((i) => i.ingredients?.canonical_name).join(', ')}.`}
+        </p>
+        {missing.length > 0 && (
+          <button className="btn btn-accent btn-block" onClick={toList}
+            disabled={busy || added}>
+            {added ? 'Added to shopping list'
+              : busy ? 'Adding…'
+              : `Add ${missing.length} to shopping list`}
+          </button>
         )}
       </div>
 
@@ -76,10 +134,9 @@ export default function Recipe({ id, go }) {
             {rows.map((ing) => (
               <div className="ingredient" key={ing.id}>
                 <span>
+                  <StockDot stock={ing.stock?.stock} />
                   {ing.raw_text}
                   {!ing.ingredient_id && <span className="ingredient-flag">unmatched</span>}
-                  {ing.ingredient_id && ing.match_confidence < 0.75 &&
-                    <span className="ingredient-flag">check</span>}
                 </span>
                 {ing.qty != null && scale !== 1 && (
                   <span className="num">{round(ing.qty * scale)} {ing.unit}</span>
@@ -106,6 +163,33 @@ export default function Recipe({ id, go }) {
       <button className="btn btn-quiet" onClick={remove}
         style={{ alignSelf: 'flex-start', color: 'var(--alert)' }}>Delete recipe</button>
     </div>
+  );
+}
+
+function StockDot({ stock }) {
+  const map = {
+    have:    { c: 'var(--green)',     t: 'You have this' },
+    partial: { c: 'var(--amber)',     t: 'Running low' },
+    none:    { c: 'var(--line-firm)', t: "You don't have this" },
+  };
+  const s = map[stock];
+  if (!s) return null;
+  return (
+    <span title={s.t} aria-label={s.t}
+      style={{
+        display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+        background: s.c, marginRight: 9, verticalAlign: 'middle',
+      }} />
+  );
+}
+
+function Macro({ label, value, unit = '' }) {
+  if (value == null) return null;
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column' }}>
+      <span className="num-lg">{Math.round(value)}{unit}</span>
+      <span className="tiny">{label}</span>
+    </span>
   );
 }
 
