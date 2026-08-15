@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
-import { uploadImages, createImportJob, runParse } from '../lib/supabase';
+import { uploadImages, createImportJob, runParse, generateRecipe } from '../lib/supabase';
 
 export default function Import({ household, go }) {
   const fileInput = useRef(null);
   const [files, setFiles] = useState([]);
   const [asOne, setAsOne] = useState(false);
   const [hint, setHint] = useState('');
+  const [theme, setTheme] = useState('');
+  const [dish, setDish] = useState('');
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -56,7 +58,7 @@ export default function Import({ household, go }) {
         const paths = await uploadImages(household.id, group.map((g) => g.file));
         patch({ status: 'parsing', stage: null });
 
-        const jobId = await createImportJob(household.id, paths, useHint);
+        const jobId = await createImportJob(household.id, paths, useHint, theme);
         const result = await runParse(jobId, (stage) => patch({ stage }));
 
         patch({ status: 'done', result });
@@ -69,6 +71,45 @@ export default function Import({ household, go }) {
 
     setBusy(false);
   }
+
+  async function generate() {
+    if (!dish.trim()) { setError('Type a dish name'); return; }
+    setBusy(true); setError(null);
+
+    const key = `gen-${Date.now()}`;
+    setJobs((j) => [{ key, count: 0, status: 'parsing', stage: null,
+                      result: null, error: null }, ...j]);
+    const patch = (p) => setJobs((j) => j.map((x) => (x.key === key ? { ...x, ...p } : x)));
+
+    try {
+      const result = await generateRecipe(household.id, dish.trim(), theme,
+        (stage) => patch({ stage }));
+      patch({ status: 'done', result });
+      setDish('');
+    } catch (e) {
+      patch({ status: 'failed', error: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const themes = [
+    ['', 'Any'],
+    ['high-protein', 'High protein'],
+    ['pre-training', 'Pre-training'],
+    ['vegetarian', 'Vegetarian'],
+    ['quick', 'Under 30 min'],
+    ['crowd', 'Feeds a crowd'],
+  ];
+
+  const ThemePicker = () => (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {themes.map(([v, label]) => (
+        <button key={v} className="chip" aria-pressed={theme === v}
+          onClick={() => setTheme(v)}>{label}</button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="stack">
@@ -85,6 +126,25 @@ export default function Import({ household, go }) {
         <input ref={fileInput} type="file" accept="image/*" multiple
           onChange={pick} style={{ display: 'none' }} />
       </div>
+
+      {files.length === 0 && (
+        <>
+          <div className="cut-label">Or just ask</div>
+          <div className="card card-pad stack-s">
+            <input className="field" placeholder="Chicken katsu curry"
+              value={dish} onChange={(e) => { setDish(e.target.value); setError(null); }}
+              onKeyDown={(e) => e.key === 'Enter' && generate()} />
+            <ThemePicker />
+            <button className="btn btn-primary btn-block" onClick={generate} disabled={busy}>
+              {busy ? 'Writing…' : 'Add recipe'}
+            </button>
+            <p className="tiny">
+              Writes the standard version of a known dish and files it like any
+              other recipe. Marked “generated” so you know nobody cooked it first.
+            </p>
+          </div>
+        </>
+      )}
 
       {files.length > 0 && (
         <>
@@ -114,6 +174,7 @@ export default function Import({ household, go }) {
             <div className="stack-s">
               <input className="field" placeholder="Dish name (optional)"
                 value={hint} onChange={(e) => setHint(e.target.value)} />
+              <ThemePicker />
               <p className="tiny">
                 Worth filling in when the title is cut off, or the recipe is
                 only spoken in the video. It also helps the AI tell a ground
