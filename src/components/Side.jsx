@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { supabase, getPantry } from '../lib/supabase';
 
 const LINKS = [
-  ['recipes',  '/',         'Library'],
+  ['home',     '/',         'Home'],
+  ['recipes',  '/library',  'Library'],
   ['discover', '/discover', 'Find'],
   ['plan',     '/plan',     'Week'],
   ['shopping', '/shopping', 'Shopping'],
@@ -22,10 +23,11 @@ export default function Side({ route, go, household }) {
 
   return (
     <aside className="side">
-      <div className="side-brand mark">
+      <button className="side-brand mark" onClick={() => go('/')}
+        style={{ border: 0, background: 'none', cursor: 'pointer' }}>
         <i className="mark-slash" />
         <span className="mark-text" style={{ fontSize: 25 }}>Chop!</span>
-      </div>
+      </button>
 
       {LINKS.map(([name, path, label]) => (
         <button key={name} className="side-link"
