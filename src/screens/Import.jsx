@@ -51,7 +51,20 @@ export default function Import({ household, go }) {
     setFiles([]);
     setHint('');
 
-    await Promise.all(groups.map(async (group, i) => {
+    // Two at a time. Firing six screenshots at once burns straight
+    // through the per-minute Gemini limit and they all 429 together.
+    const LANES = 2;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < groups.length) {
+        const i = cursor++;
+        const group = groups[i];
+        await runOne(group, i);
+      }
+    };
+
+    async function runOne(group, i) {
       const key = running[i].key;
       const patch = (p) => setJobs((j) => j.map((x) => (x.key === key ? { ...x, ...p } : x)));
 
@@ -68,7 +81,9 @@ export default function Import({ household, go }) {
       } finally {
         group.forEach((g) => URL.revokeObjectURL(g.url));
       }
-    }));
+    }
+
+    await Promise.all(Array.from({ length: Math.min(LANES, groups.length) }, worker));
 
     setBusy(false);
   }
