@@ -17,6 +17,7 @@ export default function Discover({ household, go }) {
   const [more, setMore] = useState(false);
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(null);
+  const [stage, setStage] = useState(null);
 
   async function run(q = query) {
     if (!q.trim()) return;
@@ -44,10 +45,11 @@ export default function Discover({ household, go }) {
   }
 
   async function add(sug, thenPlan) {
-    setAdding(sug.title); setError(null);
+    setAdding(sug.title); setStage(null); setError(null);
     try {
       const theme = sug.tags?.[0] ?? '';
-      const result = await generateRecipe(household.id, sug.title, theme);
+      const result = await generateRecipe(household.id, sug.title, theme,
+        (st) => setStage(st));
       if (thenPlan) {
         const d = mondayOf();
         await planMeal(household.id, isoDate(d), result.recipe_id, null);
@@ -141,7 +143,9 @@ export default function Discover({ household, go }) {
                 <div className="suggestion-actions">
                   <button className="btn btn-primary" onClick={() => add(s, false)}
                     disabled={!!adding}>
-                    {adding === s.title ? 'Writing…' : 'Add to library'}
+                    {adding === s.title
+                      ? (stage === 'writing' ? 'Saving…' : 'Writing…')
+                      : 'Add to library'}
                   </button>
                   <button className="btn btn-quiet" onClick={() => add(s, true)}
                     disabled={!!adding}>
