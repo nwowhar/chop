@@ -4,6 +4,7 @@ import Login from './screens/Login';
 import Onboarding from './screens/Onboarding';
 import Import from './screens/Import';
 import Discover from './screens/Discover';
+import Dashboard from './screens/Dashboard';
 import Recipes from './screens/Recipes';
 import Recipe from './screens/Recipe';
 import Cook from './screens/Cook';
@@ -58,7 +59,8 @@ export default function App() {
     case 'plan':     screen = <Plan household={household} go={go} />; break;
     case 'shopping': screen = <Shopping household={household} />; break;
     case 'pantry':   screen = <Pantry household={household} go={go} />; break;
-    default:         screen = <Recipes household={household} go={go} />;
+    case 'recipes':  screen = <Recipes household={household} go={go} />; break;
+    default:         screen = <Dashboard household={household} go={go} />;
   }
 
   return (
@@ -75,12 +77,13 @@ function readRoute() {
   if (r) return { name: 'recipe', id: r[1] };
   const c = p.match(/^\/cook\/([0-9a-f-]+)$/i);
   if (c) return { name: 'cook', id: c[1] };
+  if (p.startsWith('/library'))  return { name: 'recipes' };
   if (p.startsWith('/discover')) return { name: 'discover' };
   if (p.startsWith('/import'))   return { name: 'import' };
   if (p.startsWith('/plan'))     return { name: 'plan' };
   if (p.startsWith('/shopping')) return { name: 'shopping' };
   if (p.startsWith('/pantry'))   return { name: 'pantry' };
-  return { name: 'recipes' };
+  return { name: 'home' };
 }
 
 function Splash() {
