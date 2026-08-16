@@ -439,6 +439,84 @@ export function subscribeList(listId, onChange) {
 }
 
 // ---------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------
+
+const SEASONS = {
+  summer: 'It is summer in Australia — hot, and nobody wants the oven on.',
+  autumn: 'It is autumn in Australia — cooler evenings, produce is turning over.',
+  winter: 'It is winter in Australia — cold, dark early, braises and soups weather.',
+  spring: 'It is spring in Australia — warming up, lighter food, new season produce.',
+};
+
+function season(d = new Date()) {
+  const m = d.getMonth();
+  if (m <= 1 || m === 11) return 'summer';
+  if (m <= 4) return 'autumn';
+  if (m <= 7) return 'winter';
+  return 'spring';
+}
+
+// Three ideas a week, cached. Regenerating on every dashboard
+// load would be both slow and a fast way through the quota.
+export async function getWeeklyPick(householdId) {
+  const week = isoDate(mondayOf());
+
+  const { data: cached } = await supabase
+    .from('weekly_picks')
+    .select('suggestions')
+    .eq('household_id', householdId)
+    .eq('week_of', week)
+    .maybeSingle();
+
+  if (cached?.suggestions?.length) return cached.suggestions;
+
+  const s = season();
+  const query = `Three interesting dinners worth cooking this week. ${SEASONS[s]} ` +
+    'Mix it up: different cuisines, different proteins, nothing fussy or ' +
+    'requiring specialist shopping. Weeknight food a confident home cook ' +
+    'would enjoy making.';
+
+  let suggestions = [];
+  try {
+    suggestions = (await suggestRecipes(query)).slice(0, 3);
+  } catch {
+    return [];   // a rate limit shouldn't break the dashboard
+  }
+
+  if (suggestions.length) {
+    await supabase.from('weekly_picks')
+      .upsert({ household_id: householdId, week_of: week, suggestions });
+  }
+  return suggestions;
+}
+
+// Everything the dashboard needs, in one round trip each.
+export async function getDashboard(householdId) {
+  const week = mondayOf();
+
+  const [recipes, plan, list, pantry] = await Promise.all([
+    listRecipes(),
+    getPlan(householdId, week),
+    getList(householdId, week),
+    getPantry(householdId),
+  ]);
+
+  // "Cook tonight" — rank the library against everything in stock
+  let tonight = [];
+  const inStock = pantry.map((p) => p.ingredient_id);
+  if (inStock.length) {
+    try {
+      tonight = (await cookFromStock(householdId, inStock))
+        .filter((r) => r.make_tonight)
+        .slice(0, 4);
+    } catch { /* not fatal */ }
+  }
+
+  return { recipes, plan, list, pantry, tonight, week };
+}
+
+// ---------------------------------------------------------------
 // Pantry
 // ---------------------------------------------------------------
 
