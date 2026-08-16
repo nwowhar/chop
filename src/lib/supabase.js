@@ -111,6 +111,7 @@ function watchJob(jobId, onStage) {
       if (done) return;
       done = true;
       clearInterval(poll);
+      clearTimeout(slow);
       clearTimeout(bail);
       if (channel) supabase.removeChannel(channel);
       fn(arg);
@@ -149,8 +150,16 @@ function watchJob(jobId, onStage) {
         check)
       .subscribe();
 
-    // Realtime can miss an update; poll as a backstop.
-    const poll = setInterval(check, 2500);
+    // Realtime usually gets there first, but when it doesn't the
+    // poll was adding seconds of dead air after the job had already
+    // finished. Start fast, back off once it's clearly a long one.
+    let every = 700;
+    let poll = setInterval(check, every);
+    const slow = setTimeout(() => {
+      clearInterval(poll);
+      every = 2000;
+      poll = setInterval(check, every);
+    }, 12000);
     const bail = setTimeout(
       () => finish(reject, new Error('Timed out. Check the Import list in a moment.')),
       180000);
@@ -163,6 +172,16 @@ function watchJob(jobId, onStage) {
 // same pipeline as an import, so it lands as a real row with
 // canonical ingredients and can be planned and shopped for.
 export async function generateRecipe(householdId, dish, theme, onStage) {
+  // Already got it? Open that instead of paying to write it twice.
+  const { data: existing } = await supabase
+    .from('recipes')
+    .select('id, title')
+    .ilike('title', dish.trim())
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) return { recipe_id: existing.id, title: existing.title, existing: true };
+
   const jobId = await createImportJob(householdId, [], dish, theme);
   return await runParse(jobId, onStage);
 }
