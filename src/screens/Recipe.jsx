@@ -45,13 +45,13 @@ export default function Recipe({ id, household, go }) {
   async function remove() {
     if (!confirm('Delete this recipe?')) return;
     await deleteRecipe(id);
-    go('/');
+    go('/library');
   }
 
   return (
     <div className="stack">
       <button className="btn btn-quiet" style={{ alignSelf: 'flex-start' }}
-        onClick={() => go('/')}>← Recipes</button>
+        onClick={() => history.back()}>← Back</button>
 
       {recipe.image_url && (
         <img className="recipe-hero" src={recipe.image_url} alt=""

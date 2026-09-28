@@ -10,7 +10,7 @@ const CATS = [
   ['household', 'Other'],
 ];
 
-export default function Pantry({ household, go }) {
+export default function Kitchen({ household, go }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
   const [q, setQ] = useState('');

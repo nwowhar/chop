@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listRecipes } from '../lib/supabase';
+import { listRecipes, getWeeklyPick, generateRecipe } from '../lib/supabase';
 
 const THEMES = [
   ['all',          'All'],
@@ -10,15 +10,26 @@ const THEMES = [
   ['crowd',        'Feeds a crowd'],
 ];
 
-export default function Recipes({ go }) {
+export default function Library({ household, go, onAdd }) {
   const [recipes, setRecipes] = useState(null);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
+  const [picks, setPicks] = useState(null);
+  const [adding, setAdding] = useState(null);
 
   useEffect(() => {
     listRecipes().then(setRecipes).catch((e) => setError(e.message));
-  }, []);
+    getWeeklyPick(household.id).then(setPicks).catch(() => setPicks([]));
+  }, [household.id]);
+
+  async function tryPick(s) {
+    setAdding(s.title);
+    try {
+      const r = await generateRecipe(household.id, s.title, s.tags?.[0] ?? '');
+      go(`/recipe/${r.recipe_id}`);
+    } catch (e) { setError(e.message); setAdding(null); }
+  }
 
   if (error) return <p className="error">{error}</p>;
   if (!recipes) return <p className="muted">Loading…</p>;
@@ -28,8 +39,7 @@ export default function Recipes({ go }) {
       <div className="empty">
         <p>Nothing in the library yet.</p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
-          <button className="btn btn-accent" onClick={() => go('/discover')}>Find a recipe</button>
-          <button className="btn" onClick={() => go('/import')}>Import a screenshot</button>
+          <button className="btn btn-accent" onClick={onAdd}>Add a recipe</button>
         </div>
       </div>
     );
@@ -47,7 +57,7 @@ export default function Recipes({ go }) {
           <input className="field" style={{ width: 200 }}
             placeholder={`Search ${recipes.length} recipes`}
             value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => go('/discover')}>Find</button>
+          <button className="btn btn-accent" onClick={onAdd}>+ Add</button>
         </div>
       </div>
 
@@ -57,6 +67,28 @@ export default function Recipes({ go }) {
             onClick={() => setFilter(v)}>{label}</button>
         ))}
       </div>
+
+      {picks?.length > 0 && !q.trim() && filter === 'all' && (
+        <section>
+          <div className="cut-label">Worth a go this week</div>
+          <div className="picks">
+            {picks.map((s, i) => (
+              <div className={`pick pick-c${i % 3}`} key={s.title}>
+                <div>
+                  <h3>{s.title}</h3>
+                  <p className="pick-why">{s.why}</p>
+                </div>
+                <div className="pick-foot">
+                  <span className="num">{s.minutes} min</span>
+                  <button className="btn" onClick={() => tryPick(s)} disabled={!!adding}>
+                    {adding === s.title ? 'Writing…' : 'Try it'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {shown.length === 0 ? (
         <p className="empty">Nothing matches that.</p>

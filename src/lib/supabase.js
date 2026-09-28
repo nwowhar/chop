@@ -364,6 +364,50 @@ export async function markCooked(id) {
 }
 
 // ---------------------------------------------------------------
+// Auto plan
+// ---------------------------------------------------------------
+
+export async function autoPlan(householdId, weekOf, nights = 5, theme = null) {
+  const { data, error } = await supabase.rpc('auto_plan', {
+    hid: householdId, wk: isoDate(weekOf ?? mondayOf()),
+    nights, theme: theme || null,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// ---------------------------------------------------------------
+// Receipts
+// ---------------------------------------------------------------
+
+// Photograph the docket. Every line becomes a price you actually
+// paid and a pantry item, so stock and prices stay current with
+// no typing. Your prices beat any national average.
+export async function scanReceipt(householdId, file) {
+  const shrunk = await shrink(file);
+  const path = `${householdId}/receipt-${crypto.randomUUID()}.jpg`;
+
+  const { error: upErr } = await supabase.storage
+    .from('recipe-images')
+    .upload(path, shrunk, { contentType: shrunk.type || 'image/jpeg' });
+  if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
+
+  const { data, error } = await supabase.functions.invoke('parse-receipt', {
+    body: { image_path: path, household_id: householdId },
+  });
+  if (error) {
+    let detail = error.message;
+    try {
+      const ctx = await error.context?.json();
+      if (ctx?.error) detail = ctx.error;
+    } catch { /* not json */ }
+    throw new Error(detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+// ---------------------------------------------------------------
 // Shopping list
 // ---------------------------------------------------------------
 
@@ -411,6 +455,33 @@ export async function addManualItem(listId, label) {
   const { error } = await supabase.from('list_items').insert({
     list_id: listId, label, manual: true, is_check_only: true,
   });
+  if (error) throw error;
+}
+
+export async function listTotal(listId) {
+  const { data, error } = await supabase.rpc('list_total', { lid: listId });
+  if (error) throw error;
+  return data?.[0] ?? { known: 0, unpriced: 0 };
+}
+
+// Triage: right = already have it, left = don't need it,
+// up = keep it. Only "have it" touches the pantry.
+export async function triage(itemId, verdict) {
+  if (verdict === 'have') return haveAlready(itemId);
+
+  if (verdict === 'skip') {
+    const { error } = await supabase
+      .from('list_items')
+      .update({ dismissed_at: new Date().toISOString() })
+      .eq('id', itemId);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await supabase
+    .from('list_items')
+    .update({ triaged_at: new Date().toISOString() })
+    .eq('id', itemId);
   if (error) throw error;
 }
 
@@ -491,30 +562,6 @@ export async function getWeeklyPick(householdId) {
   return suggestions;
 }
 
-// Everything the dashboard needs, in one round trip each.
-export async function getDashboard(householdId) {
-  const week = mondayOf();
-
-  const [recipes, plan, list, pantry] = await Promise.all([
-    listRecipes(),
-    getPlan(householdId, week),
-    getList(householdId, week),
-    getPantry(householdId),
-  ]);
-
-  // "Cook tonight" — rank the library against everything in stock
-  let tonight = [];
-  const inStock = pantry.map((p) => p.ingredient_id);
-  if (inStock.length) {
-    try {
-      tonight = (await cookFromStock(householdId, inStock))
-        .filter((r) => r.make_tonight)
-        .slice(0, 4);
-    } catch { /* not fatal */ }
-  }
-
-  return { recipes, plan, list, pantry, tonight, week };
-}
 
 // ---------------------------------------------------------------
 // Pantry

@@ -48,6 +48,10 @@ SCHEMA
   ],
   "steps": [ { "step_no": integer, "text": string, "timer_seconds": integer | null } ],
   "steps_truncated": boolean,
+  "macros_per_serve": {
+    "kcal": number, "protein_g": number, "carb_g": number,
+    "fat_g": number, "fibre_g": number
+  },
   "notes": string | null
 }
 
@@ -119,7 +123,36 @@ Ignore
   "Saved" header.
 - Brand tags in the middle of an ingredient list are noise, not ingredients.
 
+Macros
+- Estimate per serving from the ingredients and servings count.
+- If servings is null, assume 4.
+- Round to whole grams. These are estimates for sorting, not nutrition advice.
+
 If the images contain no recipe, return {"error": "no recipe found"}.`;
+
+const GENERATION_PROMPT = `Write a real, well-known recipe.
+
+You are given a dish name and sometimes a dietary steer. Produce the standard
+home-cook version of that dish — the one most recipes for it agree on. Do not
+invent a novel dish or an unusual variation.
+
+Return ONLY a JSON object in the schema below. No markdown fences.
+
+Same schema, same rules on ingredient naming, quantities and units as an
+imported recipe:
+- Metric only. g, ml or each. Nothing else.
+- 1 cup = 240 ml, 1 tbsp = 15 ml, 1 tsp = 5 ml. Celsius only.
+- "name" is the bare ingredient, no quantity or preparation.
+- "raw_text" is how the line would read in a recipe ("2 brown onions, diced").
+- Countable things are "each"; spices and liquids are ml; solids by weight are g.
+- Sections only where the dish genuinely has them (marinade, sauce, garnish).
+- Ground spice vs fresh herb: pick whichever the dish actually uses.
+- 6-10 steps, one action each, explicit times and temperatures.
+- Estimate per-serve macros.
+
+Set "title_inferred": false and "steps_truncated": false.
+
+If the dish name is not a real dish, return {"error": "not a known dish"}.`;
 
 const RECONSTRUCTION_PROMPT = `Write cooking instructions for this recipe.
 
@@ -195,18 +228,43 @@ function parseJson<T>(raw: string): T {
   return JSON.parse(s) as T;
 }
 
-async function callGemini(parts: unknown[]): Promise<string> {
-  const res = await fetch(`${ENDPOINT}?key=${GEMINI_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-      },
-    }),
-  });
+async function callGemini(parts: unknown[], think = 'low'): Promise<string> {
+  const config: Record<string, unknown> = {
+    maxOutputTokens: 8192,
+    responseMimeType: 'application/json',
+  };
+
+  const send = (cfg: Record<string, unknown>) =>
+    fetch(`${ENDPOINT}?key=${GEMINI_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: cfg }),
+    });
+
+  // Reading a caption or writing a known recipe needs no deliberation,
+  // and thinking tokens are both slow and charged against the output
+  // budget. Retry without the field if the model rejects it.
+  let res = await send({ ...config, thinkingLevel: think });
+  if (res.status === 400) res = await send(config);
+
+  // 429 is either the rolling per-minute cap, which clears in
+  // seconds, or the daily quota, which does not. Back off for the
+  // first, and say so plainly for the second.
+  for (let attempt = 0; attempt < 3 && res.status === 429; attempt++) {
+    const body = await res.clone().text();
+    if (/per day|daily|RequestsPerDay/i.test(body)) {
+      throw new Error(
+        'Daily Gemini quota used up. It resets around 5pm AEST, ' +
+        'or enable billing on the Google Cloud project to lift the cap.');
+    }
+    const wait = 2000 * Math.pow(2, attempt) + Math.random() * 500;
+    await new Promise((r) => setTimeout(r, wait));
+    res = await send({ ...config, thinkingLevel: think });
+  }
+
+  if (res.status === 429) {
+    throw new Error('Gemini is rate limiting. Give it a minute and try again.');
+  }
 
   if (!res.ok) {
     const body = await res.text();
@@ -225,6 +283,62 @@ async function callGemini(parts: unknown[]): Promise<string> {
   return text;
 }
 
+// ------------------------------------------------------------
+// Recipe sites publish schema.org Recipe as JSON-LD — structured
+// data they put there specifically for machines to read. Pull it
+// straight out rather than asking a model to read the page.
+// ------------------------------------------------------------
+function findRecipeLd(html: string): Record<string, unknown> | null {
+  const blocks = [...html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+
+  for (const b of blocks) {
+    let data;
+    try { data = JSON.parse(b[1].trim()); } catch { continue; }
+
+    const queue = Array.isArray(data) ? [...data] : [data];
+    while (queue.length) {
+      const node = queue.shift();
+      if (!node || typeof node !== 'object') continue;
+
+      const t = node['@type'];
+      const types = Array.isArray(t) ? t : [t];
+      if (types.includes('Recipe')) return node;
+
+      if (Array.isArray(node['@graph'])) queue.push(...node['@graph']);
+    }
+  }
+  return null;
+}
+
+function ldImage(node: Record<string, unknown>): string | null {
+  const img = node.image;
+  if (!img) return null;
+  if (typeof img === 'string') return img;
+  if (Array.isArray(img)) {
+    const first = img[0];
+    return typeof first === 'string' ? first : (first?.url ?? null);
+  }
+  // deno-lint-ignore no-explicit-any
+  return (img as any).url ?? null;
+}
+
+function ogImage(html: string): string | null {
+  const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+        ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+  return m?.[1] ?? null;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
   let bin = '';
@@ -237,6 +351,7 @@ function toBase64(buf: ArrayBuffer): string {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+
 
   const admin = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -274,32 +389,104 @@ Deno.serve(async (req) => {
     // RLS applies on the user client, so this fails if they aren't a member
     const { data: job, error: jobErr } = await userClient
       .from('import_jobs')
-      .select('id, household_id, image_paths, status')
+      .select('id, household_id, image_paths, status, hint, theme, source_url')
       .eq('id', jobId)
       .single();
 
     if (jobErr || !job) throw new Error('job not found or not permitted');
     if (job.status === 'saved') throw new Error('job already saved');
 
-    await admin.from('import_jobs').update({ status: 'parsing' }).eq('id', jobId);
+    await admin.from('import_jobs')
+      .update({ status: 'parsing', stage: 'reading' }).eq('id', jobId);
 
-    // ---- pass 1: vision
-    const parts: unknown[] = [{ text: EXTRACTION_PROMPT }];
+    // ---- pass 1
+    const hint = (job.hint ?? '').trim();
+    const theme = (job.theme ?? '').trim();
+    const sourceUrl = (job.source_url ?? '').trim();
+    const generated = !job.image_paths?.length && !sourceUrl;
 
-    for (const path of job.image_paths) {
+    if (generated && !hint) throw new Error('a dish name is required');
+
+    let imageUrl: string | null = null;
+
+    const themeLine = {
+      'high-protein': 'Favour a high-protein version: at least 30 g protein per serving.',
+      'pre-training': 'Favour carbohydrate, keep fat and fibre low — this is eaten before exercise.',
+      'vegetarian':   'Make it vegetarian. No meat, fish, or animal-derived sauces such as fish sauce, oyster sauce or anchovy.',
+      'quick':        'Keep total cooking time under 30 minutes.',
+      'crowd':        'Write it for 8 servings and keep it to methods that scale in one pot or tray.',
+    }[theme] ?? '';
+
+    let parsed: ParsedRecipe;
+
+    if (sourceUrl) {
+      const page = await fetch(sourceUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Chop/1.0)' },
+        redirect: 'follow',
+      });
+      if (!page.ok) throw new Error(`could not read that page (${page.status})`);
+
+      const html = await page.text();
+      const ld = findRecipeLd(html);
+      imageUrl = (ld ? ldImage(ld) : null) ?? ogImage(html);
+
+      // JSON-LD when the site publishes it, page text as a fallback.
+      const payload = ld
+        ? JSON.stringify(ld).slice(0, 30000)
+        : stripHtml(html).slice(0, 30000);
+
+      const urlText = `${EXTRACTION_PROMPT}
+
+The input below is ${ld ? 'schema.org Recipe JSON-LD' : 'the text of a web page'}
+rather than a screenshot. Same rules apply: metric only, split combined
+ingredient lines, bare ingredient names, sections where the recipe has them.
+
+Ignore navigation, comments, adverts and the author's story. Take the
+ingredients and method only.
+
+${payload}`;
+
+      parsed = parseJson<ParsedRecipe>(await callGemini([{ text: urlText }]));
+
+    } else if (generated) {
+      const genText = `${GENERATION_PROMPT}
+
+DISH: "${hint}"
+${themeLine ? `STEER: ${themeLine}` : ''}`;
+
+      parsed = parseJson<ParsedRecipe>(await callGemini([{ text: genText }]));
+    } else {
+
+    const promptText = hint
+      ? `${EXTRACTION_PROMPT}
+
+USER-SUPPLIED DISH NAME: "${hint}"
+
+The person importing this told you what the dish is. Trust it.
+- Use it as "title" exactly, and set "title_inferred": false.
+- Let it settle ambiguous ingredient readings. In a curry, "coriander"
+  with a spoon measure is the ground spice; in a salad it's the herb.
+- If the images clearly show a different dish, follow the images and
+  put the mismatch in "notes".`
+      : EXTRACTION_PROMPT;
+
+    const parts: unknown[] = [{ text: promptText }];
+
+    const files = await Promise.all(job.image_paths.map(async (path: string) => {
       const { data: file, error: dlErr } = await admin
         .storage.from('recipe-images').download(path);
       if (dlErr || !file) throw new Error(`could not read ${path}`);
-
-      parts.push({
+      return {
         inline_data: {
-          mime_type: file.type || 'image/png',
+          mime_type: file.type || 'image/jpeg',
           data: toBase64(await file.arrayBuffer()),
         },
-      });
-    }
+      };
+    }));
+    parts.push(...files);
 
-    const parsed = parseJson<ParsedRecipe>(await callGemini(parts));
+      parsed = parseJson<ParsedRecipe>(await callGemini(parts));
+    }
 
     if (parsed.error) throw new Error(parsed.error);
     if (!parsed.sections?.length) throw new Error('no ingredients extracted');
@@ -321,7 +508,7 @@ Deno.serve(async (req) => {
         text: `${RECONSTRUCTION_PROMPT}
 
 INPUT
-Title: ${parsed.title ?? 'unknown'}
+Title: ${hint || parsed.title || 'unknown'}
 Servings: ${parsed.servings ?? 'unknown'}
 Ingredients: ${JSON.stringify(flat)}
 Existing steps: ${parsed.steps?.length ? JSON.stringify(parsed.steps) : 'none'}`,
@@ -331,69 +518,86 @@ Existing steps: ${parsed.steps?.length ? JSON.stringify(parsed.steps) : 'none'}`
       if (out.steps?.length) parsed.steps = out.steps;
     }
 
-    // ---- pass 3: canonical matching
+    // ---- pass 3: canonical matching (one round trip, not thirty)
     const unmatched: string[] = [];
+    const allIngredients = parsed.sections.flatMap((s) => s.ingredients);
+    const names = allIngredients.map((i) => i.name);
 
-    for (const section of parsed.sections) {
-      for (const ing of section.ingredients) {
-        const { data: hits } = await admin.rpc('match_ingredient', {
-          q: ing.name, min_score: MATCH_FLAG,
-        });
+    const { data: matches, error: matchErr } = await admin
+      .rpc('match_ingredients_batch', { names });
+    if (matchErr) throw new Error(`matching failed: ${matchErr.message}`);
 
-        const best = hits?.[0];
-        // deno-lint-ignore no-explicit-any
-        const row = ing as any;
+    const byName = new Map<string, { id: string; canonical_name: string; score: number }>();
+    for (const m of matches ?? []) {
+      if (m.id && !byName.has(m.input)) byName.set(m.input, m);
+    }
 
-        if (best && best.score >= MATCH_FLAG) {
-          row.ingredient_id = best.id;
-          row.match_confidence = best.score;
-          row.matched_name = best.canonical_name;
-          row.needs_review = best.score < MATCH_AUTO;
-        } else {
-          row.ingredient_id = null;
-          row.match_confidence = null;
-          row.needs_review = true;
-          unmatched.push(ing.name);
-        }
+    for (const ing of allIngredients) {
+      const best = byName.get(ing.name);
+      // deno-lint-ignore no-explicit-any
+      const row = ing as any;
+
+      if (best && best.score >= MATCH_FLAG) {
+        row.ingredient_id = best.id;
+        row.match_confidence = best.score;
+        row.needs_review = best.score < MATCH_AUTO;
+      } else {
+        row.ingredient_id = null;
+        row.match_confidence = null;
+        row.needs_review = true;
+        unmatched.push(ing.name);
       }
     }
 
-    for (const name of unmatched) {
+    if (unmatched.length) {
       await admin.from('ingredient_review_queue')
-        .insert({ raw_text: name, resolved: false });
+        .insert(unmatched.map((raw_text) => ({ raw_text, resolved: false })));
     }
+
+    await admin.from('import_jobs').update({ stage: 'writing' }).eq('id', jobId);
 
     // ---- write the recipe
     const { data: recipe, error: recErr } = await admin
       .from('recipes')
       .insert({
         household_id: job.household_id,
-        title: parsed.title ?? 'Untitled recipe',
+        title: hint || parsed.title || 'Untitled recipe',
         servings: parsed.servings,
-        source_type: 'instagram',
+        source_type: sourceUrl ? 'url' : generated ? 'manual' : 'instagram',
         source_handle: parsed.source_handle,
-        image_path: job.image_paths[0],
+        image_path: job.image_paths?.[0] ?? null,
+        image_url: imageUrl,
+        source_url: sourceUrl || null,
+        macros_per_serve: parsed.macros_per_serve ?? null,
         steps_origin: stepsOrigin,
-        tags: parsed.title_inferred ? ['title-inferred'] : [],
+        tags: [
+          ...((!hint && parsed.title_inferred) ? ['title-inferred'] : []),
+          ...(generated ? ['generated'] : []),
+          ...(theme ? [theme] : []),
+        ],
       })
       .select('id')
       .single();
 
     if (recErr || !recipe) throw new Error(`recipe insert failed: ${recErr?.message}`);
 
-    for (const [idx, section] of parsed.sections.entries()) {
-      const { data: sec } = await admin
-        .from('recipe_sections')
-        .insert({ recipe_id: recipe.id, name: section.name, sort_order: idx })
-        .select('id')
-        .single();
+    const { data: secRows } = await admin
+      .from('recipe_sections')
+      .insert(parsed.sections.map((s, idx) => ({
+        recipe_id: recipe.id, name: s.name, sort_order: idx,
+      })))
+      .select('id, sort_order');
 
-      const rows = section.ingredients.map((ing, i) => {
+    const secId = new Map<number, string>();
+    for (const r of secRows ?? []) secId.set(r.sort_order, r.id);
+
+    const ingRows = parsed.sections.flatMap((section, idx) =>
+      section.ingredients.map((ing, i) => {
         // deno-lint-ignore no-explicit-any
         const r = ing as any;
         return {
           recipe_id: recipe.id,
-          section_id: sec?.id ?? null,
+          section_id: secId.get(idx) ?? null,
           ingredient_id: r.ingredient_id,
           raw_text: ing.raw_text,
           qty: ing.qty,
@@ -403,10 +607,10 @@ Existing steps: ${parsed.steps?.length ? JSON.stringify(parsed.steps) : 'none'}`
           match_confidence: r.match_confidence,
           sort_order: i,
         };
-      });
+      })
+    );
 
-      if (rows.length) await admin.from('recipe_ingredients').insert(rows);
-    }
+    if (ingRows.length) await admin.from('recipe_ingredients').insert(ingRows);
 
     if (parsed.steps?.length) {
       await admin.from('recipe_steps').insert(
