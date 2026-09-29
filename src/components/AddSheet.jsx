@@ -249,8 +249,9 @@ export default function AddSheet({ household, go, onClose }) {
                 </button>
               </div>
               <p className="tiny">
-                Most recipe sites publish structured data, so this pulls the real
-                ingredients, method and photo.
+                Most recipe sites publish their recipe as structured data, so this
+                reads it directly — no AI call, no rate limit, unlimited. The
+                cheapest way to fill the library.
               </p>
             </div>
           )}

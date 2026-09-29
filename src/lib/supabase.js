@@ -563,6 +563,14 @@ export async function getWeeklyPick(householdId) {
 }
 
 
+// How much of today's free Gemini allowance is spent. The limit
+// is requests, not tokens — roughly 15/minute, 1500/day.
+export async function usageToday(householdId) {
+  const { data, error } = await supabase.rpc('usage_today', { hid: householdId });
+  if (error) return { calls_today: 0, calls_this_minute: 0 };
+  return data?.[0] ?? { calls_today: 0, calls_this_minute: 0 };
+}
+
 // ---------------------------------------------------------------
 // Pantry
 // ---------------------------------------------------------------
